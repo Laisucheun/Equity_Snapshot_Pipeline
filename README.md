@@ -565,10 +565,7 @@ The 40 tickers outside ±4pp fall into four categories — none are pipeline err
 
 | Issue | Affected Tickers | Status |
 |---|---|---|
-| ROTCE not computable | JPM and large banks | Deferred — financials agent swarm planned |
-| NIM understated ~50bps | All banks | Proxy uses total assets; earning assets denominator planned |
-| Revenue overstated | GS and investment banks | IB-specific sector routing not yet built |
-| Adjusted vs GAAP gap | Pharma, tech | By design — GAAP fidelity is a core principle |
+| ROTCE and other financial industry specifics nuance not computable | Financial Industry | Deferred — financials agent swarm planned |
 
 > **Note:** Balance sheet history limitation has been resolved — pipeline retrieves up to 5 years of data. Financials sector edge cases are deferred to the next release.
 
