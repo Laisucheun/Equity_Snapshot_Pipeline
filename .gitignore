@@ -45,4 +45,3 @@ sp500_metrics_*.xlsx
 
 # Manual/local-only data files
 peers.csv
-ratings.csv

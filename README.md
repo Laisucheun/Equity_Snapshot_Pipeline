@@ -465,6 +465,12 @@ Edit `ratings.csv` — columns: `ticker, sp_rating, moodys_rating, fitch_rating,
 
 Pipeline falls back to `N/A` per ticker if file or row is missing.
 
+> **ratings.csv is committed to the repo** and manually maintained.
+> Update it when ratings change (typically quarterly).
+> The file is the source of truth for cost-of-debt calculations —
+> an outdated rating will affect WACC and OAS spread selection.
+> Pipeline falls back to N/A per ticker if a row is missing.
+
 ### 2. Basel III FR Y-9C files (financials sector only)
 
 Required for Tier 1, Total Capital, and Tier 1 Leverage ratios for US bank holding companies (JPM, BAC, WFC, GS, etc.). These ratios are not available in SEC XBRL.
@@ -566,6 +572,7 @@ The 40 tickers outside ±4pp fall into four categories — none are pipeline err
 | Issue | Affected Tickers | Status |
 |---|---|---|
 | ROTCE and other financial industry specifics nuance not computable | Financial Industry | Deferred — financials agent swarm planned |
+| Credit ratings stale risk | All tickers | ratings.csv is manually maintained — ratings are not fetched automatically. Update quarterly or after any rating action. |
 
 > **Note:** Balance sheet history limitation has been resolved — pipeline retrieves up to 5 years of data. Financials sector edge cases are deferred to the next release.
 
