@@ -1,0 +1,524 @@
+ticker,status,note
+AAPL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ADBE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ADI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ADP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ADSK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AEP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AFL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AJG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ALGN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ALL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AMAT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AMD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AMGN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AMT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AMZN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ANSS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AON,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+APD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AVGO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+AXP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BAC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BAX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BKNG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BLK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BMY,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BRO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+BSX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+C,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CARR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CAT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CCI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CCL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CDNS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CHTR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CMCSA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CMI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CMS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+COP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CRM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CSCO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CTRA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CTSH,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CVS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+CVX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+D,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DAL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DOV,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DOW,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DTE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DUK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DVN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+DXC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ED,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EMR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EOG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EPAM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EQIX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ETN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ETR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EXC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+EXPE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FANG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FAST,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FCX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FIS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FISV,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FITB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+FTV,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GILD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GOOGL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GPN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+GS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+HCA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+HD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+HLT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+HUM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+IBM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+IDXX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ILMN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+INTC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+INTU,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+IT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ITW,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+KHC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+KLAC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+KMB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+KMI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+KO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LDOS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LHX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LLY,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LMT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LRCX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LUV,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+LVS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MAR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MCD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MCHP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MET,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+META,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MGM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MMC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MMM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MPC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MSFT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MTD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+MU,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NCLH,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NEE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NFLX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NKE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NOC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NVDA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+NXPI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+OKE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ON,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ORCL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+OTIS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PAYX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PCAR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PEG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PEP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PGR,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PH,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PKI,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PLD,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PNC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PRU,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PSA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PSX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+PYPL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+QCOM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+RCL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+REGN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ROK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ROST,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+RSG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+RTX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SHW,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SLB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SNPS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SPG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+STE,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+STT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+STX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+SYK,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+T,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TDG,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TECH,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TFC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TJX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TMUS,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TRGP,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TSLA,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TTWO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+TXN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+UAL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+USB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+V,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+VLO,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+VRTX,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+VZ,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WDC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WEC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WFC,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WMB,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WMT,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+WYNN,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+XEL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+XOM,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+XYL,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+ZBH,VERIFIED,search-confirmed against S&P/Moody's press releases or company IR
+A,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AAL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ABBV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ABNB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ABT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ACGL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ACN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ADM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AEE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AES,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AIG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AIZ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AKAM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ALB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ALLE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AMCR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AME,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AMP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ANET,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AOS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+APA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+APH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+APO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+APTV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ARE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ARM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ASML,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ATO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AVB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AVY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AWK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AXON,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AZN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+AZO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BALL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BBWI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BBY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BCR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BDX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BEN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BF-B,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BIIB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BIO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BKR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BLDR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BRK-B,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+BX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CAG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CAH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CBOE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CBRE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CCEP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CDW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CEG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CFG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CHD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CHRW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CINF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CLX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CME,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CMG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CNC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CNP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+COF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+COO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+COR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+COST,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CPAY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CPB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CPRT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CPT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CRL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CRWD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CSGP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CSX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CTAS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CTLT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CTVA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+CZR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DAY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DDOG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DECK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DFS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DGX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DHI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DHR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DIS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DLR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DLTR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DOC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DPZ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DRI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DVA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+DXCM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EBAY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ECL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EFX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EIX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ELV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EMN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ENPH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EQR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EQT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ES,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ESS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ETSY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EVRG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EXPD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+EXR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+F,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FDS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FDX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FFIV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FICO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FLT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FMC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FOX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FOXA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FRT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FSLR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+FTNT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GDDY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GEHC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GEN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GEV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GFS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GIS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GLW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GNRC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GOOG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GPC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GRMN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+GWW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HAL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HAS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HBAN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HES,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HIG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HII,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HOLX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HON,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HPE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HPQ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HRL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HSIC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HST,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HSY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HUBB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+HWM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ICE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IEX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IFF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+INCY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+INVH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IPG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IQV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IRM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ISRG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+IVZ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+J,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JBHT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JBL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JCI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JKHY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JNJ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JNPR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+JPM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+K,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KDP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KEY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KEYS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KIM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KMX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+KVUE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+L,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LEN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LIN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LKQ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LNC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LNT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LOW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LULU,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LYB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+LYV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MAA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MAS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MCK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MCO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MDB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MDLZ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MDT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MELI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MHK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MKC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MKTX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MLM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MNST,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MOH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MOS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MPWR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MRK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MRNA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MRO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MRVL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MSCI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MSI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MTB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+MTCH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NDAQ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NDSN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NOW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NRG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NSC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NTAP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NTRS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NUE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NVR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NWS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+NWSA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+O,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ODFL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+OMC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ORLY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+OXY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PANW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PARA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PAYC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PCG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PDD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PFE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PFG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PHM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PKG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PNR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PNW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PODD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+POOL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PPG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PPL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PTC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PTVE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+PWR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+QRVO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+REG,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+RF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+RJF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+RL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+RMD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ROL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ROP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+RVTY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SBAC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SBUX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SCHW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SJM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SMCI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SNA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SOLV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SPGI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SRE,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+STLD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+STZ,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SWK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SWKS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SYF,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+SYY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TAP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TDY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TEAM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TEL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TER,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TFX,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TGT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TMO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TPR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TRMB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TROW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TRV,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TSCO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TSN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TTD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TXT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+TYL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UBER,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UDR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UHS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UNH,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UNP,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+UPS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+URI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VICI,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VLTO,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VMC,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VRSK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VRSN,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VTR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+VTRS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WAB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WAT,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WBA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WBD,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WDAY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WELL,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WHR,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WRB,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WRK,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WST,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WTW,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+WY,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+YUM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ZBRA,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ZM,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ZS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available
+ZTS,UNVERIFIED_ESTIMATE,placeholder rating -- not sourced from a real rating agency; replace when a live source is available

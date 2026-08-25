@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────
+# equity-analyst — pinned dependencies
+# Tested on Python 3.12
+# ─────────────────────────────────────────────────────────────
+
+# Data ingestion
+edgartools==5.36.0       # SEC EDGAR filings + XBRL parsing (imported as `edgar`)
+yfinance==1.4.1          # Market price, market cap
+
+# Computation
+numpy==2.4.4
+pandas==3.0.2
+
+# PDF generation
+reportlab==4.4.10
+
+# PDF validation (test_pipeline.py only)
+pypdf==5.9.0
+
+# Transitive — pin to avoid breakage across edgartools / yfinance updates
+httpx==0.28.1            # edgartools HTTP client
+lxml==6.0.2              # HTML/XML parsing used by edgartools
+requests==2.33.1         # yfinance HTTP client

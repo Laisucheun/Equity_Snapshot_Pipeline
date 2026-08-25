@@ -1,0 +1,38 @@
+xbrl_cache/
+
+# Secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Databases
+*.db
+
+# Generated outputs
+diag_out/
+phase2_output/
+phase2_output_20f/
+probe_csv/
+*.xlsx
+*.zip
+*.log
+*.tsv.checkpoint
+
+# Industry raw data
+Industry Files/
+BHCF*.ZIP
+
+# Supplemental scratch
+Supplemental/
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Reports and PDFs
+Reports/
+*.pdf
+*.tsv
+ERPbymonth.xlsx
