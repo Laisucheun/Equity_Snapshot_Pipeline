@@ -1,0 +1,2656 @@
+"""
+facts_processor.py -- SEC EDGAR Company Facts API data processor
+
+Bypasses edgartools' single-filing limitation by querying the company
+facts API directly.  Returns 10-25 years of annual financial data from
+a single HTTP call per ticker.
+
+Drop-in compatible with RobustDataProcessor.  Produces the same
+financials_payload dict format so CompanyFinancialProfile works unchanged.
+
+Architecture
+------------
+Source: data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json
+One HTTP call returns ALL historical XBRL data for a company.
+
+For each line item (Revenue, NetIncomeLoss, etc.):
+  1. Try raw XBRL concepts in priority order (waterfall)
+  2. Extract all annual (10-K) values across all filed periods
+  3. Deduplicate: keep most recently filed for same period-end date
+  4. Produce a DataFrame row with standard_concept matching edgartools labels
+
+Output DataFrames have the same shape as edgartools' xbrl().statements
+output, so existing StatementProfile / CompanyFinancialProfile classes
+work without modification -- they just see more period columns.
+
+Usage
+-----
+    from data.facts_processor import FactsDataProcessor
+
+    proc = FactsDataProcessor("AAPL")
+    if proc.load_data(max_years=10):
+        profile = CompanyFinancialProfile(
+            ticker="AAPL",
+            sector="Technology",
+            market_cap=proc.market_cap,
+            financials_payload=proc.financials,
+        )
+        # profile.periods now has up to 10 years instead of 3
+"""
+
+import json
+import logging
+import datetime
+import requests
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------
+# SEC API configuration
+# -----------------------------------------------------------------------------
+
+_FACTS_URL   = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+_TIMEOUT     = 25
+_HEADERS     = {"User-Agent": ""}
+
+_cik_cache:   dict[str, str]  = {}
+_facts_cache: dict[str, dict] = {}
+
+
+def set_identity(identity: str) -> None:
+    """Set SEC User-Agent.  Required -- SEC blocks requests without it."""
+    _HEADERS["User-Agent"] = identity
+
+
+# -----------------------------------------------------------------------------
+# CIK + facts helpers (same pattern as xbrl_debt_fetcher.py)
+# -----------------------------------------------------------------------------
+
+def _load_cik_mapping() -> None:
+    if not _HEADERS.get("User-Agent"):
+        logger.warning("facts_processor: no User-Agent -- call set_identity()")
+        return
+    try:
+        r = requests.get(_TICKERS_URL, headers=_HEADERS, timeout=15)
+        r.raise_for_status()
+        for entry in r.json().values():
+            t = (entry.get("ticker") or "").upper()
+            if t:
+                _cik_cache[t] = str(entry["cik_str"]).zfill(10)
+        logger.info("facts_processor: loaded %d CIK mappings", len(_cik_cache))
+    except Exception as e:
+        logger.warning("facts_processor: CIK fetch failed -- %s", e)
+
+
+def _get_cik(ticker: str) -> str | None:
+    ticker = ticker.upper()
+    if ticker in _cik_cache:
+        return _cik_cache[ticker]
+    if not _cik_cache:
+        _load_cik_mapping()
+    return _cik_cache.get(ticker)
+
+
+def _get_facts(cik: str) -> dict | None:
+    if cik in _facts_cache:
+        return _facts_cache[cik]
+    try:
+        url = _FACTS_URL.format(cik=cik)
+        r   = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+        if r.status_code == 200:
+            data = r.json()
+            # Merge dei: namespace share counts into us-gaap facts so
+            # _extract_annual can resolve EntityCommonStockSharesOutstanding
+            # and other dei: concepts without special-casing.
+            dei = data.get("facts", {}).get("dei", {})
+            if dei:
+                us_gaap = data.setdefault("facts", {}).setdefault("us-gaap", {})
+                for concept, cdata in dei.items():
+                    # Only merge share-count and identity concepts; skip text fields
+                    units = cdata.get("units", {})
+                    if "shares" in units or "pure" in units:
+                        key = f"dei_{concept}"  # prefix to avoid collisions
+                        if key not in us_gaap:
+                            us_gaap[key] = cdata
+            _facts_cache[cik] = data
+            return data
+        logger.debug("facts_processor: HTTP %d for CIK %s", r.status_code, cik)
+    except Exception as e:
+        logger.warning("facts_processor: fetch error CIK %s -- %s", cik, e)
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Core extraction: company facts blob -> {period_end: value} per concept
+# -----------------------------------------------------------------------------
+
+_ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
+
+
+def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
+                    is_instant: bool = False) -> dict[str, float]:
+    """
+    Extract all annual values for a single raw XBRL concept.
+
+    Returns {period_end_date: value} sorted newest-first.
+    Deduplicates: if same period_end appears in both a 10-K and a 10-K/A,
+    keeps the most recently filed entry (the amendment supersedes).
+
+    Parameters
+    ----------
+    is_instant : True for balance-sheet (point-in-time) concepts.
+                 False for income-statement / cash-flow (duration) concepts --
+                 adds a day-count filter (300-400 days) to exclude quarterly
+                 entries that appear under a 10-K form.
+    """
+    data = us_gaap.get(concept)
+    if not data:
+        return {}
+
+    entries = data.get("units", {}).get(unit, [])
+    if not entries:
+        return {}
+
+    # Collect: end_date -> (filed_date, value)
+    # Keep most recently filed for each period end
+    best: dict[str, tuple[str, float]] = {}
+
+    for e in entries:
+        form = e.get("form", "")
+        if form not in _ANNUAL_FORMS:
+            continue
+
+        end   = e.get("end", "")
+        filed = e.get("filed", "")
+        val   = e.get("val")
+        if val is None or not end:
+            continue
+
+        # Duration filter: IS/CF entries must span ~1 year.
+        # Priority: fp='FY' or 'CY' -> always accept (annual fiscal/calendar year).
+        # Fallback: day-count filter for entries without fp field.
+        # 52/53-week fiscal years: 357-371 day spans are valid annual periods.
+        # CF non-cash add-backs: often filed with no start date, fp='FY' only.
+        if not is_instant:
+            start = e.get("start", "")
+            fp    = e.get("fp", "")
+            # Explicit annual period marker -> always accept
+            if fp in ("FY", "CY"):
+                pass  # accept regardless of day count
+            elif start:
+                try:
+                    days = (datetime.date.fromisoformat(end)
+                            - datetime.date.fromisoformat(start)).days
+                    # Reject clear quarterly (60-120 days) or semi-annual (150-200 days)
+                    # Accept anything 250+ days as a likely annual entry
+                    if days < 250:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            else:
+                # No start date, no fp -> skip (ambiguous)
+                continue
+
+        # Dedup: keep most recently filed for same period end
+        if end not in best or filed > best[end][0]:
+            best[end] = (filed, float(val))
+
+    return {end: v for end, (_, v) in
+            sorted(best.items(), key=lambda x: x[0], reverse=True)}
+
+
+
+# -----------------------------------------------------------------------------
+# Phase 1: Load edgartools gaap_mappings for sector overrides + company patches
+# -----------------------------------------------------------------------------
+
+import importlib.util as _iutil
+import os as _os
+
+def _load_gaap_mappings() -> dict:
+    """Load gaap_mappings.json from edgartools package or local copy."""
+    candidates = []
+
+    # 1. edgartools install: find_spec returns the __init__.py path;
+    #    dirname gives the package root on ALL platforms (Windows + Unix)
+    try:
+        spec = _iutil.find_spec("edgar")
+        if spec and spec.origin:
+            pkg_dir = _os.path.dirname(spec.origin)
+            candidates.append(
+                _os.path.join(pkg_dir, "xbrl", "standardization", "gaap_mappings.json")
+            )
+    except Exception:
+        pass
+
+    # 2. Same directory as facts_processor.py (user-copied file)
+    candidates.append(
+        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "gaap_mappings.json")
+    )
+
+    # 3. Current working directory
+    candidates.append("gaap_mappings.json")
+
+    for path in candidates:
+        if path and _os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                logger.info("facts_processor: loaded gaap_mappings.json (%d concepts) from %s",
+                            len(data), path)
+                return data
+            except Exception as e:
+                logger.warning("facts_processor: failed to load %s -- %s", path, e)
+
+    logger.warning("facts_processor: gaap_mappings.json not found -- sector overrides disabled. "
+                   "Copy gaap_mappings.json to your project directory or install edgartools.")
+    return {}
+
+
+def _load_company_mappings() -> dict[str, dict]:
+    """
+    Load per-ticker company_mappings/*.json from edgartools.
+    Returns {ticker_upper: {raw_concept: [standard_tags]}}
+    """
+    result: dict[str, dict] = {}
+    cm_dir = None
+    if _iutil.find_spec("edgar"):
+        edgar_dir = _os.path.dirname(_iutil.find_spec("edgar").origin)
+        cm_dir = _os.path.join(edgar_dir, "xbrl", "standardization", "company_mappings")
+    if not cm_dir or not _os.path.isdir(cm_dir):
+        return result
+
+    for fname in _os.listdir(cm_dir):
+        if not fname.endswith("_mappings.json"):
+            continue
+        ticker = fname.replace("_mappings.json", "").upper()
+        try:
+            data = json.load(open(_os.path.join(cm_dir, fname)))
+            concept_map = data.get("concept_mappings", {})
+            # Flatten: standard_label -> [raw_concepts]
+            flat: dict[str, list[str]] = {}
+            for std_label, raw_list in concept_map.items():
+                if std_label.startswith("_"):
+                    continue
+                if isinstance(raw_list, list):
+                    flat[std_label] = [c for c in raw_list if not c.startswith("_")]
+            if flat:
+                result[ticker] = flat
+        except Exception:
+            pass
+    logger.info("facts_processor: loaded company mappings for %s", list(result.keys()))
+    return result
+
+
+def _build_sector_overrides(gaap_mappings: dict) -> dict[str, dict[str, list[str]]]:
+    """
+    Build {pipeline_sector: {standard_tag: [raw_concepts_priority]}} from
+    gaap_mappings industry_overrides, using only high-confidence overrides (>=0.70).
+    """
+    from collections import defaultdict
+
+    IND_TO_SECTOR = {
+        "Banks": "Financial Services", "Fin": "Financial Services",
+        "Insur": "Financial Services",
+        "RlEst": "Real Estate",
+        "Oil": "Energy",
+        "Util": "Utilities",
+        "Drugs": "Healthcare", "Hlth": "Healthcare", "MedEq": "Healthcare",
+        "Comps": "Technology", "Chips": "Technology", "BusSv": "Technology",
+        "Rtail": "Consumer Discretionary", "Meals": "Consumer Discretionary",
+        "Autos": "Consumer Discretionary",
+        "Food": "Consumer Staples", "Hshld": "Consumer Staples",
+        "Trans": "Industrials", "Mach": "Industrials", "Aero": "Industrials",
+        "Chems": "Materials", "Mines": "Materials", "Gold": "Materials",
+        "Steel": "Materials",
+        "Telcm": "Communication Services",
+    }
+
+    # {sector: {tag: [(raw_concept, count, override_conf)]}}
+    acc = defaultdict(lambda: defaultdict(list))
+
+    for raw_concept, meta in gaap_mappings.items():
+        if "ifrs" in raw_concept.lower():
+            continue
+        count = meta.get("company_count", 0)
+        base_conf = meta.get("confidence", 0)
+
+        for ind_code, ov in meta.get("industry_overrides", {}).items():
+            sector = IND_TO_SECTOR.get(ind_code)
+            if not sector:
+                continue
+            ov_conf = ov.get("confidence", 0)
+            ov_tags = ov.get("standard_tags", [])
+            if ov_conf >= 0.70 or ov_conf > base_conf + 0.10:
+                for tag in ov_tags:
+                    existing = [x[0] for x in acc[sector][tag]]
+                    if raw_concept not in existing:
+                        acc[sector][tag].append((raw_concept, count, ov_conf))
+
+    # Sort by (override_conf desc, count desc), return concept names only
+    result: dict[str, dict[str, list[str]]] = {}
+    for sector, tag_map in acc.items():
+        result[sector] = {}
+        for tag, items in tag_map.items():
+            items.sort(key=lambda x: (x[2], x[1]), reverse=True)
+            result[sector][tag] = [x[0] for x in items]
+
+    # -- Remove inappropriate lease sub-components from non-REIT sectors --------
+    # OperatingLeaseLeaseIncomeLeasePayments is a lease payment breakdown concept
+    # that gaap_mappings incorrectly associates with Revenue for Banks/Fin.
+    _LEASE_REVENUE_CONCEPTS = {
+        "OperatingLeaseLeaseIncomeLeasePayments",
+        "OperatingLeaseLeaseIncomeVariableLeaseIncome",
+        "OperatingLeaseVariableLeaseIncome",
+        "SubleaseIncome",
+    }
+    _REIT_SECTORS = {"Real Estate"}
+    for sector, tag_map in result.items():
+        if sector in _REIT_SECTORS:
+            continue
+        for tag in tag_map:
+            tag_map[tag] = [c for c in tag_map[tag] if c not in _LEASE_REVENUE_CONCEPTS]
+
+    # -- Hard-coded sector overrides not in gaap_mappings ---------------------
+    # Real Estate: REIT rental income concepts take priority over ASC 606 revenue
+    # Placed BEFORE RevenueFromContractWithCustomerExcludingAssessedTax so apartment
+    # and tower REITs (AVB, EQR, AMT, CCI etc.) get total rental revenue, not
+    # the small service-fee sub-component that ASC 606 picks up.
+    result.setdefault("Real Estate", {})
+    result["Real Estate"]["Revenue"] = [
+        "OperatingLeaseLeaseIncome",                   # ASC 842 lease income (76 tickers)
+        "OperatingLeasesIncomeStatementLeaseRevenue",  # ASC 840 lease income (51 tickers)
+        "Revenues",                                    # Storage/diversified REITs (396 tickers)
+        "RealEstateRevenueNet",                        # Diversified REITs (23 tickers)
+    ] + [c for c in result["Real Estate"].get("Revenue", [])
+         if c not in ("OperatingLeaseLeaseIncome",
+                      "OperatingLeasesIncomeStatementLeaseRevenue",
+                      "Revenues", "RealEstateRevenueNet")]
+
+    # Financial Services: banks/insurers don't tag total revenue as Revenues.
+    # InterestIncomeExpenseNet (143 tickers) is the best single-concept proxy
+    # for banks. Prepended so it fires BEFORE RevenueFromContractWithCustomer.
+    # Note: this will show NII for banks (correct) and may overstate for
+    # diversified FS companies -- acceptable given no better single concept exists.
+    result.setdefault("Financial Services", {})
+    existing_fs_rev = result["Financial Services"].get("Revenue", [])
+    result["Financial Services"]["Revenue"] = [
+        "InterestIncomeExpenseNet",     # Banks: NII = net interest income (143 tickers)
+        "RevenuesNetOfInterestExpense", # Banks: alternative NII concept (12 tickers)
+        "PremiumsEarnedNet",            # Insurers: earned premiums (27 tickers)
+    ] + [c for c in existing_fs_rev if c not in
+         ("InterestIncomeExpenseNet", "RevenuesNetOfInterestExpense", "PremiumsEarnedNet")]
+
+    return result
+
+
+# -- Module-level initialisation -----------------------------------------------
+_GAAP_MAPPINGS:     dict             = _load_gaap_mappings()
+_COMPANY_MAPPINGS:  dict[str, dict]  = _load_company_mappings()
+_SECTOR_OVERRIDES:  dict[str, dict]  = _build_sector_overrides(_GAAP_MAPPINGS)
+
+# -----------------------------------------------------------------------------
+# Waterfall definitions -- auto-generated from edgartools gaap_mappings.json
+# 2,924 raw concepts -> 235 standard_tags, sorted by company_count desc
+# conf >= 0.50, IFRS excluded, max 20 concepts per tag
+# -----------------------------------------------------------------------------
+
+_IS_WATERFALL = [
+    ("AdvertisingExpense", [
+        "AdvertisingExpense",
+    ], "USD"),
+    ("AmortizationOfIntangibles", [
+        "AmortizationOfIntangibleAssets",
+        "ImpairmentOfIntangibleAssetsFinitelived",
+        "ImpairmentOfIntangibleAssetsExcludingGoodwill",
+        "ImpairmentOfIntangibleAssetsIndefinitelivedExcludingGoodwill",
+        "AmortisationExpense",
+    ], "USD"),
+    ("AssetImpairmentChargesIS", [
+        "AssetImpairmentCharges",
+        "GoodwillImpairmentLoss",
+    ], "USD"),
+    ("BadDebtExpense", [
+        "AllowanceForDoubtfulAccountsReceivableWriteOffs",
+    ], "USD"),
+    ("CommissionsRevenue", [
+        "BrokerageCommissionsRevenue",
+        "CommissionsAndFees",
+    ], "USD"),
+    ("CommonDividendsPerShare", [
+        "CommonStockDividendsPerShareDeclared",
+        "CommonStockDividendsPerShareCashPaid",
+        "DividendsPayableAmountPerShare",
+    ], "USD/shares"),
+    ("CommunicationAndTechnologyExpense", [
+        "CommunicationsAndInformationTechnology",
+    ], "USD"),
+    ("CostOfGoodsAndServicesSold", [
+        "CostOfGoodsAndServicesSold",
+        "CostOfRevenue",
+        "LaborAndRelatedExpense",
+        "CostOfSales",
+        "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
+        "OtherCostOfOperatingRevenue",
+        "DirectOperatingCosts",
+        "DirectCostsOfLeasedAndRentedPropertyOrEquipment",
+        "CostDirectMaterial",
+        "ExciseAndSalesTaxes",
+        "FuelCosts",
+        "RelatedPartyCosts",
+        "CostDirectLabor",
+        "CostOfOtherPropertyOperatingExpense",
+        "CostOfPropertyRepairsAndMaintenance",
+        "UtilitiesOperatingExpenseMaintenanceOperationsAndOtherCostsAndExpenses",
+        "AffiliateCosts",
+        "OperatingInsuranceAndClaimsCostsProduction",
+        "ResultsOfOperationsTransportationCosts",
+        "DirectTaxesAndLicensesCosts",
+    ], "USD"),
+    ("CostsSubtotal", [
+        "CostsAndExpenses",
+        "OtherNoncashExpense",
+        "BenefitsLossesAndExpenses",
+        "EmployeeBenefitsAndShareBasedCompensation",
+    ], "USD"),
+    ("CurrentIncomeTaxExpense", [
+        "CurrentIncomeTaxExpenseBenefit",
+        "CurrentTaxExpenseIncome",
+        "CurrentFederalTaxExpenseBenefit",
+    ], "USD"),
+    ("DeferredIncomeTaxExpense", [
+        "DeferredTaxExpenseIncome",
+        "DeferredTaxExpenseIncomeRecognisedInProfitOrLoss",
+        "DeferredFederalIncomeTaxExpenseBenefit",
+        "DeferredStateAndLocalIncomeTaxExpenseBenefit",
+    ], "USD"),
+    ("DepreciationExpense", [
+        "DepreciationDepletionAndAmortization",
+        "Depreciation",
+        "DepreciationAndAmortization",
+        "DepreciationAmortizationAndAccretionNet",
+        "OtherDepreciationAndAmortization",
+        "DepreciationAndAmortisationExpense",
+        "DepreciationExpense",
+        "DepreciationNonproduction",
+        "CostOfGoodsAndServicesSoldDepreciationAndAmortization",
+        "CostDepreciationAmortizationAndDepletion",
+        "CostOfGoodsAndServicesSoldDepreciation",
+        "ResultsOfOperationsDepreciationDepletionAndAmortizationAndValuationProvisions",
+        "ResultsOfOperationsDepreciationDepletionAmortizationAndAccretion",
+        "DepletionOfOilAndGasProperties",
+        "CapitalizedComputerSoftwareAmortization",
+    ], "USD"),
+    ("DiscontinuedOperationsIncome", [
+        "IncomeLossFromDiscontinuedOperationsNetOfTax",
+        "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity",
+        "ProfitLossFromDiscontinuedOperations",
+    ], "USD"),
+    ("EarningsPerShareBasic", [
+        "EarningsPerShareBasic",
+        "IncomeLossFromContinuingOperationsPerBasicShare",
+        "BasicEarningsLossPerShare",
+        "EarningsPerShareBasicAndDiluted",
+    ], "USD/shares"),
+    ("EarningsPerShareDiluted", [
+        "EarningsPerShareDiluted",
+        "IncomeLossFromContinuingOperationsPerDilutedShare",
+        "DilutedEarningsLossPerShare",
+        "EarningsPerShareBasicAndDiluted",
+    ], "USD/shares"),
+    ("ElectricUtilityRevenue", [
+        "RegulatedAndUnregulatedOperatingRevenue",
+    ], "USD"),
+    ("EquityMethodInvestmentIncome", [
+        "IncomeLossFromEquityMethodInvestments",
+        "ShareOfProfitLossOfAssociatesAndJointVenturesAccountedForUsingEquityMethod",
+        "ShareOfProfitLossOfAssociatesAccountedForUsingEquityMethod",
+    ], "USD"),
+    ("ExtraordinaryItemsIncomeExpense(PostTax)", [
+        "DiscontinuedOperationGainLossOnDisposalOfDiscontinuedOperationNetOfTax",
+        "DiscontinuedOperationIncomeLossFromDiscontinuedOperationBeforeIncomeTax",
+        "DiscontinuedOperationTaxEffectOfDiscontinuedOperation",
+        "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToNoncontrollingInterest",
+        "DiscontinuedOperationIncomeLossFromDiscontinuedOperationDuringPhaseOutPeriodNetOfTax",
+        "DiscontinuedOperationGainLossFromDisposalOfDiscontinuedOperationBeforeIncomeTax",
+        "DiscontinuedOperationTaxEffectOfIncomeLossFromDisposalOfDiscontinuedOperation",
+        "DiscontinuedOperationIncomeLossFromDiscontinuedOperationDuringPhaseOutPeriodBeforeIncomeTax",
+        "DiscontinuedOperationProvisionForLossGainOnDisposalNetOfTax",
+        "DiscontinuedOperationTaxEffectOfIncomeLossFromDiscontinuedOperationDuringPhaseOutPeriod",
+        "DiscontinuedOperationAmountOfAdjustmentToPriorPeriodGainLossOnDisposalBeforeIncomeTax",
+        "DiscontinuedOperationTaxExpenseBenefitFromProvisionForGainLossOnDisposal",
+        "DiscontinuedOperationProvisionForLossGainOnDisposalBeforeIncomeTax",
+        "DisposalGroupIncludingDiscontinuedOperationOperatingIncomeLoss",
+        "DiscontinuedOperationAmountOfAdjustmentToPriorPeriodGainLossOnDisposalNetOfTax",
+        "DisposalGroupIncludingDiscontinuedOperationGrossProfitLoss",
+        "DisposalGroupIncludingDiscontinuedOperationOperatingExpense",
+        "DiscontinuedOperationTaxEffectOfAdjustmentToPriorPeriodGainLossOnDisposal",
+        "DisposalGroupIncludingDiscontinuedOperationCostsOfGoodsSold",
+        "DisposalGroupIncludingDiscontinuedOperationGeneralAndAdministrativeExpense",
+    ], "USD"),
+    ("FinanceLeaseExpense", [
+        "FinanceLeaseRightOfUseAssetAmortization",
+    ], "USD"),
+    ("FinancialServicesRevenue", [
+        # Banks: NII is the closest single-concept proxy for total revenue
+        "InterestIncomeExpenseNet",
+        # Insurers
+        "PremiumsEarnedNet",
+        "BenefitsClaimsAndLossesIncurred",
+        # Brokers/asset managers
+        "RevenueOtherFinancialServices",
+        "ManagementFeesRevenue",
+        "FeesAndCommissions",
+        "BrokerageCommissionsRevenue",
+        "InvestmentBankingRevenue",
+        "NetInvestmentIncome",
+        # Catch-all
+        "NoninterestIncome",
+        "FinancialServicesRevenue",
+    ], "USD"),
+    ("ForeignCurrencyGainLoss", [
+        "ForeignCurrencyTransactionGainLossBeforeTax",
+        "ForeignExchangeLoss",
+        "NetForeignExchangeGain",
+        "ForeignExchangeGain",
+        "NetForeignExchangeLoss",
+    ], "USD"),
+    ("GainLossOnDispositions", [
+        "GainLossOnSaleOfPropertyPlantEquipment",
+        "GainLossOnSaleOfBusiness",
+        "GainsLossesOnDisposalsOfNoncurrentAssets",
+        "GainsOnDisposalsOfNoncurrentAssets",
+    ], "USD"),
+    ("GainLossOnInvestmentsIS", [
+        "GainLossOnInvestments",
+    ], "USD"),
+    ("GoodwillWriteoffs", [
+        "GoodwillAndIntangibleAssetImpairment",
+        "AdjustmentForAmortization",
+        "TangibleAssetImpairmentCharges",
+        "CostOfGoodsAndServicesSoldAmortization",
+        "ImpairmentLossRecognisedInProfitOrLoss",
+        "ResultsOfOperationsImpairmentOfOilAndGasProperties",
+        "UnamortizedCostsCapitalizedLessRelatedDeferredIncomeTaxesExceedCeilingLimitationExpense",
+    ], "USD"),
+    ("GrossProfit", [
+        "GrossProfit",
+    ], "USD"),
+    ("IncomeLossContinuingOperations", [
+        "IncomeLossFromContinuingOperations",
+        "ProfitLossFromContinuingOperations",
+    ], "USD"),
+    ("IncomeTaxes", [
+        "IncomeTaxExpenseBenefit",
+        "IncomeTaxesPaidNet",
+        "DeferredIncomeTaxExpenseBenefit",
+        "IncomeTaxExpenseContinuingOperations",
+        "ValuationAllowanceDeferredTaxAssetChangeInAmount",
+        "FederalIncomeTaxExpenseBenefitContinuingOperations",
+        "OtherTaxExpenseBenefit",
+        "CurrentStateAndLocalTaxExpenseBenefit",
+        "AdjustmentsToAdditionalPaidInCapitalTaxEffectFromShareBasedCompensation",
+        "EmployeeServiceShareBasedCompensationTaxBenefitFromCompensationExpense",
+        "TaxAdjustmentsSettlementsAndUnusualProvisions",
+        "DeferredFederalStateAndLocalTaxExpenseBenefit",
+        "ForeignIncomeTaxExpenseBenefitContinuingOperations",
+        "StateAndLocalIncomeTaxExpenseBenefitContinuingOperations",
+        "CurrentForeignTaxExpenseBenefit",
+        "UnrecognizedTaxBenefitsIncomeTaxPenaltiesAndInterestExpense",
+        "IncomeTaxExpenseBenefitContinuingOperationsAdjustmentOfDeferredTaxAssetLiability",
+        "IncomeTaxReconciliationTaxCreditsResearch",
+        "TaxCutsAndJobsActOf2017IncomeTaxExpenseBenefit",
+        "CurrentFederalStateAndLocalTaxExpenseBenefit",
+    ], "USD"),
+    ("InterestAndDividendIncome", [
+        "InvestmentIncomeInterest",
+        "InvestmentIncomeInterestAndDividend",
+        "InterestAndDividendIncomeSecurities",
+    ], "USD"),
+    ("InterestExpense", [
+        "InterestPaidNet",
+        "InterestExpense",
+        "GainsLossesOnExtinguishmentOfDebt",
+        "InterestExpenseNonoperating",
+        "AmortizationOfFinancingCosts",
+        "AmortizationOfDebtDiscountPremium",
+        "AmortizationOfFinancingCostsAndDiscounts",
+        "InterestIncomeExpenseNonoperatingNet",
+        "InterestExpenseOperating",
+        "FinanceCosts",
+        "InterestPaid",
+        "InterestExpenseDebt",
+        "InterestExpenseOther",
+        "InterestAndDebtExpense",
+        "InterestExpenseRelatedParty",
+        "InterestExpenseBorrowings",
+        "WriteOffOfDeferredDebtIssuanceCost",
+        "InterestPaidCapitalized",
+        "InterestExpenseSubordinatedNotesAndDebentures",
+        "InterestExpenseShortTermBorrowings",
+    ], "USD"),
+    ("InterestExpenseDeposits", [
+        "InterestExpenseDeposits",
+    ], "USD"),
+    ("InterestIncome", [
+        "InterestIncomeOther",
+        "FinanceIncome",
+        "InterestAndOtherIncome",
+        "OtherInterestAndDividendIncome",
+        "InvestmentIncomeDividend",
+        "InterestIncomeSecuritiesOtherUSGovernment",
+        "InterestIncomeSecuritiesMortgageBacked",
+        "InterestIncomeRelatedParty",
+        "InterestIncomeSecuritiesUSTreasury",
+        "InterestIncomeOtherDomesticDeposits",
+        "InterestIncomeSecuritiesStateAndMunicipal",
+        "InterestIncomeMoneyMarketDeposits",
+        "InterestIncomeOperatingAndNonoperating",
+        "LitigationSettlementInterest",
+        "InterestIncomeForeignDeposits",
+    ], "USD"),
+    ("LaborExpenses", [
+        "SalariesAndWages",
+        "SalariesWagesAndOfficersCompensation",
+    ], "USD"),
+    ("LicensingRevenue", [
+        "LicenseMember",
+    ], "USD"),
+    ("LossOnDebtExtinguishment", [
+        "GainLossOnExtinguishmentOfDebt",
+    ], "USD"),
+    ("MarketingExpenses", [
+        "MarketingAndAdvertisingExpense",
+        "MarketingExpense",
+        "CooperativeAdvertisingExpense",
+    ], "USD"),
+    ("MinorityInterestIncomeExpense", [
+        "NetIncomeLossAttributableToNoncontrollingInterest",
+        "ComprehensiveIncomeNetOfTaxAttributableToNoncontrollingInterest",
+        "ProfitLossAttributableToNoncontrollingInterests",
+        "NetIncomeLossAttributableToRedeemableNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsAttributableToNoncontrollingEntity",
+        "EquityMethodInvestmentOtherThanTemporaryImpairment",
+        "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
+        "TemporaryEquityForeignCurrencyTranslationAdjustments",
+        "NoncontrollingInterestInNetIncomeLossOtherNoncontrollingInterestsRedeemable",
+        "NoncontrollingInterestInNetIncomeLossOtherNoncontrollingInterestsNonredeemable",
+        "IncomeLossFromSubsidiariesNetOfTax",
+    ], "USD"),
+    ("NetIncome", [
+        "NetIncomeLoss",
+        "ProfitLossAttributableToOwnersOfParent",
+        "IncomeLossAttributableToParent",
+    ], "USD"),
+    ("NetIncomeToCommonShareholders", [
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "NetIncomeLossFromContinuingOperationsAvailableToCommonShareholdersBasic",
+    ], "USD"),
+    ("NetInterestIncome", [
+        "InterestIncomeExpenseNet",
+        "InterestAndDividendIncomeOperating",
+    ], "USD"),
+    ("NetInterestIncomeAfterProvision", [
+        "InterestIncomeExpenseAfterProvisionForLoanLoss",
+    ], "USD"),
+    ("NonInterestExpense", [
+        "NoninterestExpense",
+    ], "USD"),
+    ("NonInterestIncome", [
+        "NoninterestIncome",
+    ], "USD"),
+    ("NonoperatingIncomeExpense", [
+        "OtherNonoperatingIncomeExpense",
+        "NonoperatingIncomeExpense",
+        "FairValueAdjustmentOfWarrants",
+        "AccretionAmortizationOfDiscountsAndPremiumsInvestments",
+        "GainLossOnDispositionOfAssets1",
+        "OtherNonoperatingIncome",
+        "BusinessCombinationContingentConsiderationArrangementsChangeInAmountOfContingentConsiderationLiability1",
+        "UnrealizedGainLossOnInvestments",
+        "DerivativeGainLossOnDerivativeNet",
+        "UnrealizedGainLossOnDerivatives",
+        "OtherNoninterestExpense",
+        "ForeignCurrencyTransactionGainLossUnrealized",
+        "InvestmentIncomeNet",
+        "OtherNonoperatingExpense",
+        "GainLossOnSaleOfInvestments",
+        "GainLossOnDerivativeInstrumentsNetPretax",
+        "RealizedInvestmentGainsLosses",
+        "GainLossOnSaleOfOtherAssets",
+        "GainLossRelatedToLitigationSettlement",
+        "DisposalGroupNotDiscontinuedOperationGainLossOnDisposal",
+    ], "USD"),
+    ("OccupancyExpense", [
+        "OccupancyNet",
+        "LeaseAndRentalExpense",
+    ], "USD"),
+    ("OperatingIncomeLoss", [
+        "OperatingIncomeLoss",
+        "ProfitLossFromOperatingActivities",
+    ], "USD"),
+    ("OperatingLeaseExpense", [
+        "OperatingLeaseExpense",
+        "OperatingLeaseCost",
+        "DepreciationRightofuseAssets",
+        "InterestExpenseOnLeaseLiabilities",
+    ], "USD"),
+    ("OtherExpenseIS", [
+        "OtherCostAndExpenseOperating",
+        "OtherExpenses",
+    ], "USD"),
+    ("OtherIncomeIS", [
+        "OtherIncome",
+        "OtherOperatingIncomeExpenseNet",
+    ], "USD"),
+    ("OtherOperatingExpense", [
+        "NoninterestIncomeOtherOperatingIncome",
+        "InformationTechnologyAndDataProcessing",
+        "OperatingLeaseImpairmentLoss",
+        "AccretionExpense",
+        "ProvisionForOtherCreditLosses",
+        "AssetRetirementObligationAccretionExpense",
+        "OtherExpenseByFunction",
+        "RealEstateTaxExpense",
+        "PreOpeningCosts",
+        "RoyaltyExpense",
+        "UtilitiesOperatingExpenseMaintenanceAndOperations",
+        "PensionExpense",
+        "FranchisorCosts",
+        "AcquisitionCosts",
+        "CompensationExpenseExcludingCostOfGoodAndServiceSold",
+        "ProductionCosts",
+        "EnvironmentalRemediationExpense",
+        "DevelopmentCosts",
+        "ExplorationCosts",
+        "LossOnContractTermination",
+    ], "USD"),
+    ("PensionExpense", [
+        "NetPeriodicDefinedBenefitsExpenseReversalOfExpenseExcludingServiceCostComponent",
+        "PensionAndOtherPostretirementBenefitExpense",
+        "DefinedBenefitPlanNetPeriodicBenefitCost",
+    ], "USD"),
+    ("PolicyBenefitsAndClaims", [
+        "PolicyholderBenefitsAndClaimsIncurredNet",
+        "PolicyholderBenefitsAndClaimsIncurredGross",
+    ], "USD"),
+    ("PreferredDividendExpense", [
+        "PreferredStockDividendsIncomeStatementImpact",
+        "DividendsPreferredStock",
+        "TemporaryEquityAccretionToRedemptionValueAdjustment",
+        "DividendsPreferredStockCash",
+        "PreferredStockDividendsAndOtherAdjustments",
+        "RedeemablePreferredStockDividends",
+        "TemporaryEquityDividendsAdjustment",
+        "DividendsPreferredStockStock",
+        "PreferredStockRedemptionPremium",
+        "OtherPreferredStockDividendsAndAdjustments",
+        "PreferredStockConversionsInducements",
+        "PreferredStockRedemptionDiscount",
+        "GeneralPartnerDistributions",
+    ], "USD"),
+    ("PretaxIncomeLoss", [
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "ProfitLossBeforeTax",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxes",
+    ], "USD"),
+    ("ProfessionalFees", [
+        "ProfessionalFees",
+        "ProfessionalAndContractServicesExpense",
+    ], "USD"),
+    ("ProfitLoss", [
+        "ProfitLoss",
+        "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest",
+    ], "USD"),
+    ("ProvisionForCreditLosses", [
+        "ProvisionForLoanAndLeaseLosses",
+        "ProvisionForCreditLosses",
+    ], "USD"),
+    ("RentalAndLeasingRevenue", [
+        "OperatingLeaseLeaseIncome",
+        "OperatingLeasesIncomeStatementLeaseRevenue",
+    ], "USD"),
+    ("ResearchAndDevelopmentExpenses", [
+        "ResearchAndDevelopmentExpense",
+        "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
+        "ResearchAndDevelopmentInProcess",
+        "ExplorationExpense",
+        "ResearchAndDevelopmentAssetAcquiredOtherThanThroughBusinessCombinationWrittenOff",
+        "ResearchAndDevelopmentExpenseSoftwareExcludingAcquiredInProcessCost",
+    ], "USD"),
+    ("RestructuringExpenseBenefit", [
+        "InventoryWriteDown",
+        "RestructuringCharges",
+        "BusinessCombinationAcquisitionRelatedCosts",
+        "OtherAssetImpairmentCharges",
+        "ImpairmentOfRealEstate",
+        "DeconsolidationGainOrLossAmount",
+        "RestructuringSettlementAndImpairmentProvisions",
+        "RestructuringCosts",
+        "RestructuringCostsAndAssetImpairmentCharges",
+        "BusinessCombinationIntegrationRelatedCosts",
+        "ImpairmentOfOilAndGasProperties",
+        "ReorganizationItems",
+        "AmortizationOfAcquisitionCosts",
+        "DisposalGroupNotDiscontinuedOperationLossGainOnWriteDown",
+        "RestructuringAndRelatedCostIncurredCost",
+        "SeveranceCosts1",
+        "ImpairmentOfLeasehold",
+        "BusinessExitCosts1",
+        "ExplorationAbandonmentAndImpairmentExpense",
+        "ImpairmentOfOngoingProject",
+    ], "USD"),
+    ("Revenue", [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "Revenue",
+        "RevenueFromRelatedParties",
+        "RevenueFromContractsWithCustomers",
+        "PremiumsEarnedNet",
+        "GainsLossesOnSalesOfAssets",
+        "RevenueFromCollaborativeArrangementExcludingRevenueFromContractWithCustomer",
+        "PrincipalTransactionsRevenue",
+        "InsuranceServicesRevenue",
+        "OperatingLeaseLeaseIncomeLeasePayments",
+        "InterestAndFeeIncomeOtherLoans",
+        "ResearchAndDevelopmentArrangementContractToPerformForOthersCompensationEarned",
+        "OilAndGasSalesRevenue",
+        "OperatingLeasesIncomeStatementMinimumLeaseRevenue",
+        "PercentageRent",
+        "ReimbursementRevenue",
+        "RetailRevenue",
+        "SaleOfTrustAssetsToPayExpenses",
+    ], "USD"),
+    ("RoyaltyRevenue", [
+        "RoyaltyRevenue",
+    ], "USD"),
+    ("SellingGeneralAndAdminExpenses", [
+        "GeneralAndAdministrativeExpense",
+        "SellingGeneralAndAdministrativeExpense",
+        "SellingAndMarketingExpense",
+        "SellingExpense",
+        "OtherGeneralAndAdministrativeExpense",
+        "AdministrativeExpense",
+        "TaxesExcludingIncomeAndExciseTaxes",
+        "EmployeeBenefitsExpense",
+        "TaxesOther",
+        "GeneralInsuranceExpense",
+        "OtherSellingGeneralAndAdministrativeExpense",
+        "TravelAndEntertainmentExpense",
+        "ProductionTaxExpense",
+        "SalesCommissionsAndFees",
+        "RealEstateTaxesAndInsurance",
+        "DistributionCosts",
+        "PumpTaxes",
+    ], "USD"),
+    ("SharesAverage", [
+        "WeightedAverageNumberOfSharesOutstandingBasic",
+        "WeightedAverageShares",
+        "WeightedAverageBasicSharesOutstandingProForma",
+    ], "shares"),
+    ("SharesDilutionAdjustment", [
+        "WeightedAverageNumberDilutedSharesOutstandingAdjustment",
+        "IncrementalCommonSharesAttributableToShareBasedPaymentArrangements",
+    ], "USD/shares"),
+    ("SharesFullyDilutedAverage", [
+        "WeightedAverageNumberOfDilutedSharesOutstanding",
+        "WeightedAverageNumberOfShareOutstandingBasicAndDiluted",
+        "AdjustedWeightedAverageShares",
+    ], "shares"),
+    ("SharesIssued", [
+        "CommonStockSharesIssued",
+        "PreferredStockSharesIssued",
+        "SharesIssued",
+        "NumberOfSharesIssued",
+        "NumberOfSharesIssuedAndFullyPaid",
+    ], "shares"),
+    ("SharesYearEnd", [
+        "dei_EntityCommonStockSharesOutstanding",   # dei: namespace -- most reliable
+        "CommonStockSharesOutstanding",
+        "SharesOutstanding",
+        "PreferredStockSharesOutstanding",
+        "NumberOfSharesOutstanding",
+        "EntityCommonStockSharesOutstanding",
+    ], "shares"),
+    ("SpecialItemsIncomeExpense(Pretax)", [
+        "UnusualOrInfrequentItemInsuranceProceeds",
+        "UnusualOrInfrequentItemNetOfInsuranceProceeds",
+    ], "USD"),
+    ("StockBasedCompensationExpense", [
+        "ShareBasedCompensation",
+        "AllocatedShareBasedCompensationExpense",
+        "ExpenseFromSharebasedPaymentTransactionsWithEmployees",
+    ], "USD"),
+    ("TotalInterestIncomeOperating", [
+        "InterestIncomeOperating",
+    ], "USD"),
+    ("TotalOperatingExpenses", [
+        "OperatingExpenses",
+        "OperatingCostsAndExpenses",
+        "OperatingExpense",
+    ], "USD"),
+    ("ValuationAllowanceDTA", [
+        "DeferredTaxAssetsValuationAllowance",
+    ], "USD"),
+    ("NetIncomeLoss", [
+        "NetIncomeLoss",
+        "ProfitLoss",
+    ], "USD"),
+    ("Revenues", [
+        "Revenues",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+    ], "USD"),
+    ("RegulatedAndUnregulatedOperatingRevenue", [
+        "RegulatedAndUnregulatedOperatingRevenue",
+        "ElectricUtilityRevenue",
+    ], "USD"),
+    ("DepreciationAmortization", [
+        "DepreciationDepletionAndAmortization",
+        "DepreciationAndAmortization",
+        "Depreciation",
+    ], "USD"),
+]
+
+_BS_WATERFALL = [
+    ("AccountsReceivableGross", [
+        "AccountsReceivableGrossCurrent",
+    ], "USD"),
+    ("AccruedCompensation", [
+        "EmployeeRelatedLiabilitiesCurrent",
+        "AccruedSalariesCurrent",
+    ], "USD"),
+    ("AccruedIncomeTaxes", [
+        "AccruedIncomeTaxesCurrent",
+        "TaxesPayableCurrent",
+    ], "USD"),
+    ("AccumulatedAmortizationIntangibles", [
+        "FiniteLivedIntangibleAssetsAccumulatedAmortization",
+    ], "USD"),
+    ("AccumulatedDepreciation", [
+        "AccumulatedDepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
+    ], "USD"),
+    ("AccumulatedOtherComprehensiveIncome", [
+        "AccumulatedOtherComprehensiveIncomeLossNetOfTax",
+        "OtherReserves",
+        "AccumulatedOtherComprehensiveIncome",
+        "ReserveOfExchangeDifferencesOnTranslation",
+        "AccumulatedOtherComprehensiveIncomeLossForeignCurrencyTranslationAdjustmentNetOfTax",
+        "AccumulatedOtherComprehensiveIncomeLossAvailableForSaleSecuritiesAdjustmentNetOfTax",
+        "AccumulatedOtherComprehensiveIncomeLossDefinedBenefitPensionAndOtherPostretirementPlansNetOfTax",
+        "AccumulatedOtherComprehensiveIncomeLossCumulativeChangesInNetGainLossFromCashFlowHedgesEffectNetOfTax",
+    ], "USD"),
+    ("AdditionalPaidInCapital", [
+        "AdditionalPaidInCapital",
+        "AdditionalPaidInCapitalCommonStock",
+        "SharePremium",
+        "AdditionalPaidinCapital",
+    ], "USD"),
+    ("AllEquityBalance", [
+        "StockholdersEquity",
+        "EquityAttributableToOwnersOfParent",
+    ], "USD"),
+    ("AllEquityBalanceIncludingMinorityInterest", [
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        "Equity",
+        "LimitedLiabilityCompanyLlcMembersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        "AociIncludingPortionAttributableToNoncontrollingInterestTax",
+    ], "USD"),
+    ("AllowanceForDoubtfulAccounts", [
+        "AllowanceForDoubtfulAccountsReceivableCurrent",
+    ], "USD"),
+    ("AssetRetirementObligations", [
+        "AssetRetirementObligationsNoncurrent",
+    ], "USD"),
+    ("Assets", [
+        "Assets",
+        "AssetsNet",
+    ], "USD"),
+    ("AssetsHeldForSale", [
+        "AssetsOfDisposalGroupIncludingDiscontinuedOperationCurrent",
+        "AssetsHeldForSaleNotPartOfDisposalGroupCurrent",
+    ], "USD"),
+    ("CashAndMarketableSecurities", [
+        "CashAndCashEquivalentsAtCarryingValue",
+        "Cash",
+        "AvailableForSaleSecuritiesDebtSecurities",
+        "Investments",
+        "CashAndDueFromBanks",
+        "InterestBearingDepositsInBanks",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterest",
+        "EquitySecuritiesFvNi",
+        "HeldToMaturitySecuritiesFairValue",
+        "AvailableForSaleDebtSecuritiesAmortizedCostBasis",
+        "CashEquivalentsAtCarryingValue",
+        "MarketableSecurities",
+        "HeldToMaturitySecurities",
+        "OtherShortTermInvestments",
+        "EquitySecuritiesFvNiCurrentAndNoncurrent",
+        "DebtSecuritiesHeldToMaturityAmortizedCostAfterAllowanceForCreditLoss",
+        "TradingSecuritiesDebt",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",
+        "TradingSecurities",
+        "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations",
+    ], "USD"),
+    ("CommonEquity", [
+        "CommonStockValue",
+        "TreasuryStockCommonValue",
+        "IssuedCapital",
+        "CommonStockValueOutstanding",
+        "PartnersCapital",
+        "MembersEquity",
+        "CommonStocksIncludingAdditionalPaidInCapital",
+        "StockholdersEquityBeforeTreasuryStock",
+        "CommonStockShareSubscribedButUnissuedSubscriptionsReceivable",
+        "UnearnedESOPShares",
+        "PartnersCapitalIncludingPortionAttributableToNoncontrollingInterest",
+        "RetainedEarningsUnappropriated",
+        "DeferredCompensationEquity",
+        "RetainedEarningsAppropriated",
+        "CommonStockOtherSharesOutstanding",
+        "OtherAdditionalCapital",
+        "ReceivableFromShareholdersOrAffiliatesForIssuanceOfCapitalStock",
+        "CommonStockOtherValueOutstanding",
+        "AociLossCashFlowHedgeCumulativeGainLossAfterTax",
+        "ReclassificationFromAociCurrentPeriodNetOfTaxAttributableToParent",
+    ], "USD"),
+    ("ContractAssets", [
+        "CurrentContractAssets",
+        "ContractWithCustomerAssetNet",
+        "NoncurrentContractAssets",
+        "ContractAssets",
+    ], "USD"),
+    ("ContractLiabilities", [
+        "ContractWithCustomerLiabilityNoncurrent",
+        "ContractWithCustomerLiability",
+        "ContractLiabilities",
+    ], "USD"),
+    ("ConvertibleDebtNonCurrent", [
+        "ConvertibleDebtNoncurrent",
+    ], "USD"),
+    ("CurrentAssetsTotal", [
+        "AssetsCurrent",
+        "CurrentAssets",
+    ], "USD"),
+    ("CurrentLiabilitiesTotal", [
+        "LiabilitiesCurrent",
+        "CurrentLiabilities",
+    ], "USD"),
+    ("CurrentPortionOfLongTermDebt", [
+        "LongTermDebtCurrent",
+        "LongTermDebtAndCapitalLeaseObligationsCurrent",
+    ], "USD"),
+    ("CustomerAdvances", [
+        "ContractWithCustomerRefundLiabilityCurrent",
+    ], "USD"),
+    ("DeferredCompensationNonCurrent", [
+        "DeferredCompensationLiabilityClassifiedNoncurrent",
+    ], "USD"),
+    ("DeferredPolicyAcquisitionCosts", [
+        "DeferredPolicyAcquisitionCosts",
+        "DeferredPolicyAcquisitionCostAmortizationExpense",
+    ], "USD"),
+    ("DeferredRevenueCurrent", [
+        "DeferredRevenueCurrent",
+        "CurrentContractLiabilities",
+        "DeferredIncomeIncludingContractLiabilities",
+        "DeferredIncomeOtherThanContractLiabilities",
+    ], "USD"),
+    ("DeferredRevenueNonCurrent", [
+        "DeferredRevenueNoncurrent",
+        "NoncurrentContractLiabilities",
+    ], "USD"),
+    ("DeferredTaxCurrentAssets", [
+        "DeferredTaxAssetsDeferredIncome",
+        "DeferredTaxAssetsGross",
+        "DeferredTaxAssetsNet",
+        "DeferredIncomeTaxesAndOtherAssetsCurrent",
+        "DeferredTaxAssetsOther",
+        "DeferredIncomeTaxesAndOtherTaxReceivableCurrent",
+        "DeferredTaxAssetsTaxCreditCarryforwards",
+        "DeferredTaxAssetsInventory",
+        "DeferredTaxAssetsOperatingLossCarryforwards",
+        "DeferredTaxAssetsPropertyPlantAndEquipment",
+        "DeferredTaxAssetsTaxDeferredExpenseReservesAndAccruals",
+    ], "USD"),
+    ("DeferredTaxCurrentLiabilities", [
+        "DeferredIncomeTaxLiabilitiesNet",
+        "DeferredTaxLiabilities",
+        "DeferredIncomeTaxLiabilities",
+        "DeferredTaxLiabilitiesOther",
+        "DeferredTaxLiabilitiesDerivatives",
+        "DeferredTaxLiabilitiesTaxDeferredIncome",
+        "DeferredTaxLiabilitiesDeferredExpense",
+        "DeferredTaxLiabilitiesCurrent",
+        "DeferredTaxLiabilitiesDeferredExpenseCapitalizedPatentCosts",
+        "DeferredTaxLiabilitiesGoodwillAndIntangibleAssets",
+        "DeferredTaxLiabilitiesGoodwillAndIntangibleAssetsIntangibleAssets",
+        "DeferredTaxLiabilitiesPrepaidExpenses",
+    ], "USD"),
+    ("DeferredTaxNonCurrentLiabilities", [
+        "DeferredIncomeTaxLiabilitiesNet",
+        "DeferredTaxLiabilities",
+        "AccruedIncomeTaxesNoncurrent",
+        "AccruedIncomeTaxes",
+        "TaxesPayableCurrentAndNoncurrent",
+        "LiabilityForUncertainTaxPositionsNoncurrent",
+        "DeferredIncomeTaxLiabilities",
+        "DeferredTaxAndOtherLiabilitiesNoncurrent",
+        "DeferredIncomeTaxesAndOtherTaxLiabilitiesNoncurrent",
+        "AccumulatedDeferredInvestmentTaxCredit",
+        "DeferredIncomeTaxesAndOtherLiabilitiesNoncurrent",
+        "DeferredTaxLiabilitiesNoncurrent",
+        "DeferredTaxLiabilitiesOther",
+        "DeferredTaxLiabilitiesDerivatives",
+        "DeferredTaxLiabilitiesTaxDeferredIncome",
+        "DeferredTaxLiabilitiesDeferredExpense",
+        "DeferredTaxAssetsLiabilitiesNetNoncurrent",
+        "DeferredTaxAssetsLiabilitiesNet",
+        "TaxCutsAndJobsActOf2017TransitionTaxForAccumulatedForeignEarningsLiabilityNoncurrent",
+        "DeferredTaxLiabilitiesDeferredExpenseCapitalizedPatentCosts",
+    ], "USD"),
+    ("DeferredTaxNoncurrentAssets", [
+        "DeferredIncomeTaxAssetsNet",
+        "DeferredTaxAssets",
+        "IncomeTaxesReceivableNoncurrent",
+        "DeferredIncomeTaxesAndOtherAssetsNoncurrent",
+        "DeferredTaxAssetsDeferredIncome",
+        "DeferredTaxAssetsGross",
+        "DeferredTaxAssetsNet",
+        "DeferredTaxAssetsNetNoncurrent",
+        "DeferredTaxAssetsOther",
+        "DeferredTaxAssetsLiabilitiesNetNoncurrent",
+        "DeferredTaxAssetsLiabilitiesNet",
+        "DeferredTaxAssetsTaxCreditCarryforwards",
+        "DeferredTaxAssetsInventory",
+        "DeferredTaxAssetsCapitalLossCarryforwards",
+        "DeferredTaxAssetsGrossNoncurrent",
+        "DeferredTaxAssetsOperatingLossCarryforwards",
+        "DeferredTaxAssetsPropertyPlantAndEquipment",
+        "DeferredTaxAssetsTaxDeferredExpenseReservesAndAccruals",
+    ], "USD"),
+    ("DefinedBenefitPlanAssets", [
+        "DefinedBenefitPlanFairValueOfPlanAssets",
+    ], "USD"),
+    ("DefinedBenefitPlanObligations", [
+        "DefinedBenefitPlanBenefitObligation",
+    ], "USD"),
+    ("DefiniteLivedOperatingProvisions(DecommissioningEtc)", [
+        "RegulatoryLiabilityNoncurrent",
+        "LitigationReserveNoncurrent",
+        "MineReclamationAndClosingLiabilityNoncurrent",
+        "AccruedCappingClosurePostClosureAndEnvironmentalCostsNoncurrent",
+        "AccruedCappingClosurePostClosureAndEnvironmentalCosts",
+        "OilAndGasReclamationLiabilityNoncurrent",
+        "DecommissioningLiabilityNoncurrent",
+        "SpentNuclearFuelObligationNoncurrent",
+    ], "USD"),
+    ("DividendsPayable", [
+        "DividendsPayableCurrent",
+        "DividendsPayableCurrentAndNoncurrent",
+    ], "USD"),
+    ("Goodwill", [
+        "Goodwill",
+        "IndefiniteLivedLicenseAgreements",
+        "IndefiniteLivedTrademarks",
+        "IndefiniteLivedTradeNames",
+        "GoodwillGross",
+        "IndefiniteLivedFranchiseRights",
+        "OtherIndefiniteLivedIntangibleAssets",
+        "IndefiniteLivedContractualRights",
+        "GoodwillImpairedAccumulatedImpairmentLoss",
+    ], "USD"),
+    ("GoodwillAndIntangiblesNet", [
+        "IntangibleAssetsNetIncludingGoodwill",
+        "GoodwillAndIntangibleAssetsNet",
+    ], "USD"),
+    ("GrossPropertyPlantEquipment", [
+        "PropertyPlantAndEquipmentGross",
+    ], "USD"),
+    ("IncomeTaxReceivable", [
+        "IncomeTaxesReceivable",
+        "IncomeTaxReceivable",
+    ], "USD"),
+    ("IntangibleAssets", [
+        "IntangibleAssetsNetExcludingGoodwill",
+        "FiniteLivedIntangibleAssetsNet",
+        "IntangibleAssetsOtherThanGoodwill",
+        "OtherIntangibleAssetsNet",
+        "IndefiniteLivedIntangibleAssetsExcludingGoodwill",
+        "IntangibleAssetsCurrent",
+        "FiniteLivedPatentsGross",
+        "BusinessCombinationRecognizedIdentifiableAssetsAcquiredAndLiabilitiesAssumedIntangibles",
+        "OtherFiniteLivedIntangibleAssetsGross",
+        "FiniteLivedTrademarksGross",
+        "FiniteLivedCustomerRelationshipsGross",
+        "FiniteLivedIntangibleAssetOffMarketLeaseFavorableGross",
+        "FiniteLivedCustomerListsGross",
+        "FiniteLivedNoncompeteAgreementsGross",
+        "FiniteLivedTradeNamesGross",
+    ], "USD"),
+    ("IntangibleAssetsGross", [
+        "FiniteLivedIntangibleAssetsGross",
+        "IntangibleAssetsGrossExcludingGoodwill",
+    ], "USD"),
+    ("Inventories", [
+        "InventoryNet",
+        "Inventories",
+        "InventoryGross",
+        "InventoryFinishedGoodsNetOfReserves",
+        "InventoryValuationReserves",
+        "InventoryRawMaterialsAndSupplies",
+        "PropertySubjectToOrAvailableForOperatingLeaseNet",
+        "InventoryFinishedGoods",
+        "InventoryWorkInProcess",
+        "InventoryWorkInProcessNetOfReserves",
+        "OtherInventorySupplies",
+        "InventoryRawMaterialsNetOfReserves",
+        "InventoryRawMaterialsAndSuppliesNetOfReserves",
+        "EnergyRelatedInventory",
+        "EnergyRelatedInventoryNaturalGasInStorage",
+        "InventoryRawMaterials",
+        "FIFOInventoryAmount",
+        "InventoryNetOfAllowancesCustomerAdvancesAndProgressBillings",
+        "RetailRelatedInventoryMerchandise",
+        "PropertySubjectToOrAvailableForOperatingLeaseAccumulatedDepreciation",
+    ], "USD"),
+    ("InvestmentsEquityMethod", [
+        "EquityMethodInvestments",
+        "InvestmentsInAffiliatesSubsidiariesAssociatesAndJointVentures",
+        "InvestmentAccountedForUsingEquityMethod",
+        "InvestmentsInAssociatesAccountedForUsingEquityMethod",
+        "InvestmentsInJointVenturesAccountedForUsingEquityMethod",
+    ], "USD"),
+    ("Liabilities", [
+        "Liabilities",
+    ], "USD"),
+    ("LiabilitiesAndEquity", [
+        "LiabilitiesAndStockholdersEquity",
+        "CommitmentsAndContingencies",
+    ], "USD"),
+    ("LoanLossReserve", [
+        "FinancingReceivableAllowanceForCreditLosses",
+        "AllowanceForLoanAndLeaseLosses",
+    ], "USD"),
+    ("LongTermDebt", [
+        "LongTermDebtNoncurrent",
+        "FinanceLeaseLiabilityNoncurrent",
+        "LongTermNotesPayable",
+        "LongTermDebt",
+        "LongTermDebtAndCapitalLeaseObligations",
+        "LongtermBorrowings",
+        "ConvertibleLongTermNotesPayable",
+        "LineOfCredit",
+        "NotesPayable",
+        "LongTermLoansPayable",
+        "LongTermLineOfCredit",
+        "NotesPayableRelatedPartiesNoncurrent",
+        "OtherLongTermDebtNoncurrent",
+        "SecuredLongTermDebt",
+        "ConvertibleNotesPayable",
+        "LongTermLoansFromBank",
+        "UnsecuredDebt",
+        "SeniorNotes",
+        "DebtInstrumentUnamortizedDiscount",
+        "OtherLongTermDebt",
+    ], "USD"),
+    ("LongtermInvestments", [
+        "LongTermInvestments",
+        "AvailableForSaleSecuritiesDebtSecurities",
+        "Investments",
+        "EquitySecuritiesFvNi",
+        "HeldToMaturitySecuritiesFairValue",
+        "LoansReceivableHeldForSaleNetNotPartOfDisposalGroup",
+        "HeldToMaturitySecurities",
+        "OtherInvestments",
+        "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+        "OtherLongTermInvestments",
+        "EquitySecuritiesFvNiCurrentAndNoncurrent",
+        "InvestmentProperty",
+        "RealEstateInvestments",
+        "RestrictedInvestments",
+        "EquitySecuritiesFVNINoncurrent",
+        "EquitySecuritiesWithoutReadilyDeterminableFairValueAmount",
+        "TradingSecurities",
+        "LongTermInvestmentsAndReceivablesNet",
+        "RestrictedInvestmentsNoncurrent",
+        "PremiumsAndOtherReceivablesNet",
+    ], "USD"),
+    ("MinorityInterestBalance", [
+        "MinorityInterest",
+        "NoncontrollingInterests",
+        "PartnersCapitalAttributableToNoncontrollingInterest",
+        "MinorityInterestInOperatingPartnerships",
+        "MembersEquityAttributableToNoncontrollingInterest",
+        "NoncontrollingInterestInVariableInterestEntity",
+        "NonredeemableNoncontrollingInterest",
+        "MinorityInterestInJointVentures",
+        "OtherMinorityInterests",
+    ], "USD"),
+    ("NetLoansAndLeases", [
+        "LoansAndLeasesReceivableNetReportedAmount",
+        "FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss",
+        "LoansAndLeasesReceivableNetOfDeferredIncome",
+    ], "USD"),
+    ("NonCurrentAssetsTotal", [
+        "AssetsNoncurrent",
+        "NoncurrentAssets",
+    ], "USD"),
+    ("NonCurrentLiabilitiesTotal", [
+        "LiabilitiesNoncurrent",
+        "NoncurrentLiabilities",
+    ], "USD"),
+    ("NotesReceivableNonCurrent", [
+        "NotesAndLoansReceivableNetNoncurrent",
+    ], "USD"),
+    ("OngoingOperatingProvisions(WarrantiesEtc)", [
+        "WarrantsAndRightsOutstanding",
+        "DeferredRevenue",
+        "NoncurrentProvisions",
+        "DeferredIncomeNoncurrent",
+        "Provisions",
+        "ProductWarrantyAccrualNoncurrent",
+        "CustomerAdvancesAndDeposits",
+        "ProductWarrantyAccrual",
+        "ContractWithCustomerRefundLiability",
+        "ContractWithCustomerRefundLiabilityNoncurrent",
+        "DeferredRevenueAndCreditsNoncurrent",
+        "StandardProductWarrantyAccrualNoncurrent",
+        "CustomerRefundLiabilityNoncurrent",
+        "CustomerAdvancesOrDepositsNoncurrent",
+        "ExtendedProductWarrantyAccrual",
+        "ExtendedProductWarrantyAccrualNoncurrent",
+        "CustomerAdvancesNoncurrent",
+        "CustomerDepositsNoncurrent",
+        "DeferredRevenueAndCredits",
+        "CustomerAdvancesForConstruction",
+    ], "USD"),
+    ("OperatingLeaseCurrentDebtEquivalent", [
+        "OperatingLeaseLiabilityCurrent",
+        "CurrentLeaseLiabilities",
+        "OperatingLeaseLiability",
+    ], "USD"),
+    ("OperatingLeaseNonCurrentDebtEquivalent", [
+        "OperatingLeaseLiabilityNoncurrent",
+        "NoncurrentLeaseLiabilities",
+        "OperatingLeaseLiability",
+        "OperatingLeaseLiabilityStatementOfFinancialPositionExtensibleList",
+    ], "USD"),
+    ("OperatingLeaseRightOfUseAsset", [
+        "OperatingLeaseRightOfUseAsset",
+        "RightofuseAssets",
+    ], "USD"),
+    ("OtherNonOperatingCurrentAssets", [
+        "PrepaidExpenseAndOtherAssetsCurrent",
+        "OtherAssetsCurrent",
+        "OtherAssets",
+        "OtherReceivablesNetCurrent",
+        "DueFromRelatedPartiesCurrent",
+        "InterestReceivable",
+        "OtherReceivables",
+        "NotesReceivableNet",
+        "PrepaidExpenseAndOtherAssets",
+        "DerivativeAssetsCurrent",
+        "LoansReceivableHeldForSaleNetNotPartOfDisposalGroup",
+        "AccountsReceivableRelatedPartiesCurrent",
+        "AssetsOfDisposalGroupIncludingDiscontinuedOperation",
+        "PrepaidTaxes",
+        "DeferredFinanceCostsNet",
+        "DerivativeAssets",
+        "NotesReceivableGross",
+        "DueFromRelatedParties",
+        "OtherPrepaidExpenseCurrent",
+        "OtherCurrentFinancialAssets",
+    ], "USD"),
+    ("OtherNonOperatingCurrentLiabilities", [
+        "OtherLiabilitiesCurrent",
+        "DueToRelatedPartiesCurrent",
+        "OtherLiabilities",
+        "LiabilitiesOfDisposalGroupIncludingDiscontinuedOperationCurrent",
+        "DerivativeLiabilitiesCurrent",
+        "InterestPayableCurrent",
+        "OtherAccruedLiabilitiesCurrent",
+        "InterestPayableCurrentAndNoncurrent",
+        "DerivativeLiabilities",
+        "BusinessCombinationContingentConsiderationLiabilityCurrent",
+        "LiabilitiesOfDisposalGroupIncludingDiscontinuedOperation",
+        "OtherAccountsPayableAndAccruedLiabilities",
+        "DueToAffiliateCurrent",
+        "DueToAffiliateCurrentAndNoncurrent",
+        "DueToOtherRelatedPartiesClassifiedCurrent",
+        "AssetRetirementObligationCurrent",
+        "RegulatoryLiabilityCurrent",
+        "AccountsPayableOtherCurrentAndNoncurrent",
+        "BusinessCombinationContingentConsiderationLiability",
+        "LitigationReserveCurrent",
+    ], "USD"),
+    ("OtherNonOperatingNonCurrentAssets", [
+        "OtherAssetsNoncurrent",
+        "OtherAssets",
+        "AssetsHeldInTrustNoncurrent",
+        "DisposalGroupIncludingDiscontinuedOperationAssetsNoncurrent",
+        "InterestReceivable",
+        "FinanceLeaseRightOfUseAsset",
+        "OtherReceivables",
+        "PrepaidExpenseNoncurrent",
+        "NotesReceivableNet",
+        "PrepaidExpenseAndOtherAssets",
+        "MarketableSecuritiesNoncurrent",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterest",
+        "MarketableSecurities",
+        "AssetsOfDisposalGroupIncludingDiscontinuedOperation",
+        "PrepaidTaxes",
+        "DeferredFinanceCostsNet",
+        "DerivativeAssets",
+        "DerivativeAssetsNoncurrent",
+        "OtherNoncurrentFinancialAssets",
+        "NotesReceivableGross",
+    ], "USD"),
+    ("OtherNonOperatingNonCurrentLiabilities", [
+        "OtherLiabilitiesNoncurrent",
+        "LiabilitiesNoncurrent",
+        "OtherLiabilities",
+        "DerivativeLiabilitiesNoncurrent",
+        "LiabilitiesOfDisposalGroupIncludingDiscontinuedOperationNoncurrent",
+        "InterestPayableCurrentAndNoncurrent",
+        "DerivativeLiabilities",
+        "BusinessCombinationContingentConsiderationLiabilityNoncurrent",
+        "DividendsPayableCurrentAndNoncurrent",
+        "LiabilitiesOfDisposalGroupIncludingDiscontinuedOperation",
+        "DueToRelatedPartiesNoncurrent",
+        "DueToAffiliateCurrentAndNoncurrent",
+        "LiabilitiesOtherThanLongtermDebtNoncurrent",
+        "AccountsPayableOtherCurrentAndNoncurrent",
+        "BusinessCombinationContingentConsiderationLiability",
+        "AccruedProfessionalFeesCurrentAndNoncurrent",
+        "OtherAccruedLiabilitiesNoncurrent",
+        "AccruedEnvironmentalLossContingenciesNoncurrent",
+        "SharesSubjectToMandatoryRedemptionSettlementTermsAmountNoncurrent",
+        "OffMarketLeaseUnfavorable",
+    ], "USD"),
+    ("OtherOperatingCurrentAssets", [
+        "RestrictedCashAndCashEquivalents",
+        "ContractWithCustomerAssetNetCurrent",
+        "DeferredOfferingCosts",
+        "DepositsAssetsCurrent",
+        "OtherCurrentAssets",
+        "DeferredCostsCurrent",
+        "CapitalizedContractCostNetCurrent",
+        "AdvancesOnInventoryPurchases",
+        "RestrictedInvestments",
+        "RestrictedCashAndInvestmentsCurrent",
+        "DeferredCostsCurrentAndNoncurrent",
+        "DeferredCostsAndOtherAssets",
+        "RestrictedInvestmentsCurrent",
+        "CapitalizedContractCostNet",
+        "SettlementAssetsCurrent",
+        "DebtSecuritiesAvailableForSaleRestricted",
+        "ContractWithCustomerAssetGrossCurrent",
+        "FundsHeldForClients",
+        "ContractWithCustomerAssetAccumulatedAllowanceForCreditLossCurrent",
+        "OtherDeferredCostsNet",
+    ], "USD"),
+    ("OtherOperatingCurrentLiabilities", [
+        "AccruedLiabilitiesCurrent",
+        "ContractWithCustomerLiabilityCurrent",
+        "AccruedLiabilitiesAndOtherLiabilities",
+        "DeferredRevenue",
+        "OtherCurrentLiabilities",
+        "AccruedLiabilitiesCurrentAndNoncurrent",
+        "LiabilityForClaimsAndClaimsAdjustmentExpense",
+        "DeferredIncomeCurrent",
+        "AccruedEmployeeBenefitsCurrent",
+        "ProductWarrantyAccrualClassifiedCurrent",
+        "AccruedPayrollTaxesCurrent",
+        "DepositLiabilityCurrent",
+        "CustomerAdvancesCurrent",
+        "CustomerDepositsCurrent",
+        "SettlementLiabilitiesCurrent",
+        "CustomerRefundLiabilityCurrent",
+        "OtherAccruedLiabilitiesCurrentAndNoncurrent",
+        "DeferredRentCreditCurrent",
+        "AccruedBonusesCurrent",
+        "PayablesToCustomers",
+    ], "USD"),
+    ("OtherOperatingNonCurrentAssets", [
+        "DeferredCosts",
+        "DepositsAssetsNoncurrent",
+        "AccountsReceivableNet",
+        "OtherNoncurrentAssets",
+        "AllowanceForDoubtfulAccountsReceivable",
+        "RestrictedCashAndCashEquivalentsNoncurrent",
+        "CapitalizedComputerSoftwareNet",
+        "CapitalizedContractCostNetNoncurrent",
+        "InventoryNoncurrent",
+        "AccountsReceivableNetNoncurrent",
+        "ContractWithCustomerAssetNetNoncurrent",
+        "AdvancesOnInventoryPurchases",
+        "DeferredCostsCurrentAndNoncurrent",
+        "DeferredCostsAndOtherAssets",
+        "UnbilledContractsReceivable",
+        "CapitalizedContractCostNet",
+        "AllowanceForDoubtfulAccountsReceivableNoncurrent",
+        "FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLossNoncurrent",
+        "LandAvailableForDevelopment",
+        "OtherDeferredCostsNet",
+    ], "USD"),
+    ("OtherOperatingNonCurrentLiabilities", [
+        "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent",
+        "OtherNoncurrentLiabilities",
+        "AccountsPayableCurrentAndNoncurrent",
+        "AccountsPayableAndOtherAccruedLiabilities",
+        "AccruedLiabilitiesCurrentAndNoncurrent",
+        "DeferredRentCreditNoncurrent",
+        "AccountsPayableAndAccruedLiabilitiesNoncurrent",
+        "OtherAccruedLiabilitiesCurrentAndNoncurrent",
+        "WorkersCompensationLiabilityNoncurrent",
+        "AccountsPayableTradeCurrentAndNoncurrent",
+        "AccountsPayableRelatedPartiesNoncurrent",
+        "ProgramRightsObligationsNoncurrent",
+        "SalesAndExciseTaxPayableCurrentAndNoncurrent",
+        "AccruedSalesCommissionCurrentAndNoncurrent",
+        "AccruedSalariesCurrentAndNoncurrent",
+        "AccruedRoyaltiesCurrentAndNoncurrent",
+        "ConstructionPayableCurrentAndNoncurrent",
+        "OtherLiabilitiesAndDeferredRevenueNoncurrent",
+        "AccruedRentNoncurrent",
+        "AccruedRentCurrentAndNoncurrent",
+    ], "USD"),
+    ("PensionObligations", [
+        "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent",
+        "DefinedBenefitPensionPlanLiabilitiesNoncurrent",
+        "PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesNoncurrent",
+    ], "USD"),
+    ("PlantPropertyEquipmentNet", [
+        "PropertyPlantAndEquipmentNet",
+        "PropertyPlantAndEquipment",
+        "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization",
+        "Land",
+        "ConstructionInProgressGross",
+        "MachineryAndEquipmentGross",
+        "BuildingsAndImprovementsGross",
+        "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAccumulatedDepreciationAndAmortization",
+        "PropertyPlantAndEquipmentOther",
+        "RealEstateHeldforsale",
+        "FurnitureAndFixturesGross",
+        "PropertyPlantAndEquipmentOtherNet",
+        "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetBeforeAccumulatedDepreciationAndAmortization",
+        "LeaseholdImprovementsGross",
+        "LandAndLandImprovements",
+        "RealEstateInvestmentsUnconsolidatedRealEstateAndOtherJointVentures",
+        "OilAndGasPropertySuccessfulEffortMethodNet",
+        "FixturesAndEquipmentGross",
+        "OilAndGasPropertyFullCostMethodNet",
+        "OilAndGasPropertySuccessfulEffortMethodAccumulatedDepreciationDepletionAndAmortization",
+    ], "USD"),
+    ("PreferredStock", [
+        "PreferredStockValue",
+        "PreferredStockValueOutstanding",
+        "PreferredStockRedemptionAmount",
+        "AdditionalPaidInCapitalPreferredStock",
+        "TreasuryStockPreferredValue",
+        "PreferredStockSharesSubscribedButUnissuedSubscriptionsReceivable",
+    ], "USD"),
+    ("PrepaidExpenses", [
+        "PrepaidExpenseCurrent",
+        "CurrentPrepaidExpenses",
+        "Prepayments",
+    ], "USD"),
+    ("RealEstateInvestments", [
+        "RealEstateInvestmentPropertyNet",
+        "RealEstateInvestmentPropertyAtCost",
+    ], "USD"),
+    ("RegulatedAssets", [
+        "RegulatoryAssetsNoncurrent",
+        "RegulatoryAssets",
+    ], "USD"),
+    ("RegulatedLiabilities", [
+        "RegulatoryLiabilities",
+        "RegulatoryLiabilitiesNoncurrent",
+    ], "USD"),
+    ("RestrictedCashCurrent", [
+        "RestrictedCashCurrent",
+        "RestrictedCash",
+        "RestrictedCashAndCashEquivalentsAtCarryingValue",
+        "CurrentRestrictedCashAndCashEquivalents",
+    ], "USD"),
+    ("RestrictedCashNonCurrent", [
+        "RestrictedCashNoncurrent",
+        "NoncurrentRestrictedCashAndCashEquivalents",
+        "RestrictedCashAndInvestmentsNoncurrent",
+    ], "USD"),
+    ("RestructuringProvisions", [
+        "RestructuringReserve",
+        "RestructuringReserveNoncurrent",
+    ], "USD"),
+    ("RetainedEarnings", [
+        "RetainedEarningsAccumulatedDeficit",
+        "RetainedEarnings",
+    ], "USD"),
+    ("RetirementRelatedCurrentLiabilities", [
+        "DeferredCompensationLiabilityCurrent",
+        "EmployeeRelatedLiabilitiesCurrentAndNoncurrent",
+        "DeferredCompensationShareBasedArrangementsLiabilityCurrent",
+        "DeferredCompensationLiabilityCurrentAndNoncurrent",
+        "PensionAndOtherPostretirementDefinedBenefitPlansCurrentLiabilities",
+        "WorkersCompensationLiabilityCurrent",
+        "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesCurrentAndNoncurrent",
+        "PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesCurrent",
+        "PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesCurrentAndNoncurrent",
+        "DeferredCompensationCashBasedArrangementsLiabilityCurrent",
+        "DefinedBenefitPensionPlanCurrentAndNoncurrentLiabilities",
+        "DefinedBenefitPensionPlanLiabilitiesCurrent",
+        "PostemploymentBenefitsLiabilityCurrent",
+        "OtherDeferredCompensationArrangementsLiabilityCurrent",
+        "OtherEmployeeRelatedLiabilitiesCurrentAndNoncurrent",
+        "OtherPostretirementDefinedBenefitPlanLiabilitiesCurrentAndNoncurrent",
+    ], "USD"),
+    ("RetirementRelatedNonCurrentAssets", [
+        "DefinedBenefitPlanAssetsForPlanBenefitsNoncurrent",
+        "DeferredCompensationPlanAssets",
+        "DefinedBenefitPlanAmountsRecognizedInBalanceSheet",
+    ], "USD"),
+    ("RetirementRelatedNonCurrentLiabilities", [
+        "OtherPostretirementDefinedBenefitPlanLiabilitiesNoncurrent",
+        "EmployeeRelatedLiabilitiesCurrentAndNoncurrent",
+        "PostemploymentBenefitsLiabilityNoncurrent",
+        "DeferredCompensationLiabilityCurrentAndNoncurrent",
+        "AssetRetirementObligation",
+        "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesCurrentAndNoncurrent",
+        "PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesCurrentAndNoncurrent",
+        "SupplementalUnemploymentBenefitsSeveranceBenefits",
+        "DefinedBenefitPensionPlanCurrentAndNoncurrentLiabilities",
+        "OtherPostretirementBenefitsPayableNoncurrent",
+        "OtherEmployeeRelatedLiabilitiesCurrentAndNoncurrent",
+        "OtherPostretirementDefinedBenefitPlanLiabilitiesCurrentAndNoncurrent",
+    ], "USD"),
+    ("SecurityDepositsAsset", [
+        "SecurityDeposit",
+    ], "USD"),
+    ("SelfInsuranceReserve", [
+        "SelfInsuranceReserveCurrent",
+        "SelfInsuranceReserve",
+    ], "USD"),
+    ("ShortTermDebt", [
+        "NotesPayableCurrent",
+        "ShortTermBorrowings",
+        "FinanceLeaseLiabilityCurrent",
+        "NotesPayableRelatedPartiesClassifiedCurrent",
+        "ConvertibleNotesPayableCurrent",
+        "LoansPayableCurrent",
+        "LinesOfCreditCurrent",
+        "ConvertibleDebtCurrent",
+        "DebtCurrent",
+        "LineOfCredit",
+        "ShorttermBorrowings",
+        "OtherNotesPayableCurrent",
+        "ShortTermBankLoansAndNotesPayable",
+        "LoansPayable",
+        "ConvertibleNotesPayable",
+        "OtherShortTermBorrowings",
+        "LoansPayableToBankCurrent",
+        "SecuredDebtCurrent",
+        "OtherLongTermDebtCurrent",
+        "BankOverdrafts",
+    ], "USD"),
+    ("ShortTermInvestments", [
+        "ShortTermInvestments",
+        "MarketableSecuritiesCurrent",
+        "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+        "CurrentInvestments",
+        "ShorttermInvestmentsClassifiedAsCashEquivalents",
+    ], "USD"),
+    ("TaxesPayable", [
+        "SalesAndExciseTaxPayableCurrent",
+        "CurrentTaxLiabilities",
+        "AccrualForTaxesOtherThanIncomeTaxesCurrent",
+        "AccruedIncomeTaxes",
+        "TaxesPayableCurrentAndNoncurrent",
+        "LiabilityForUncertainTaxPositionsCurrent",
+    ], "USD"),
+    ("TemporaryAndMezzanineFinancing", [
+        "TemporaryEquityCarryingAmountAttributableToParent",
+        "RedeemableNoncontrollingInterestEquityCarryingAmount",
+        "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
+        "TemporaryEquityValueExcludingAdditionalPaidInCapital",
+        "RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
+        "RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
+        "RedeemableNoncontrollingInterestEquityOtherCarryingAmount",
+        "RedeemableNoncontrollingInterestEquityFairValue",
+        "RedeemableNoncontrollingInterestEquityRedemptionValue",
+        "RedeemableNoncontrollingInterestEquityOtherFairValue",
+        "RedeemableNoncontrollingInterestEquityCommonFairValue",
+    ], "USD"),
+    ("TotalDeposits", [
+        "Deposits",
+        "DepositsFairValueDisclosure",
+    ], "USD"),
+    ("TradePayables", [
+        "AccountsPayableCurrent",
+        "AccountsPayableAndAccruedLiabilitiesCurrent",
+        "AccountsPayableAndOtherAccruedLiabilitiesCurrent",
+        "TradeAndOtherCurrentPayables",
+        "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent",
+        "AccountsPayableRelatedPartiesCurrent",
+        "AccountsPayableTradeCurrent",
+        "AccountsPayableCurrentAndNoncurrent",
+        "AccountsPayableAndOtherAccruedLiabilities",
+        "AccountsPayableOtherCurrent",
+        "ReinsurancePayable",
+        "AccruedRoyaltiesCurrent",
+        "CommissionsPayableToBrokerDealersAndClearingOrganizations",
+        "AccountsPayableUnderwritersPromotersAndEmployeesOtherThanSalariesAndWagesCurrent",
+        "AccountsPayableTradeCurrentAndNoncurrent",
+        "ContractualObligation",
+        "ProgramRightsObligationsCurrent",
+        "AccruedRoyaltiesCurrentAndNoncurrent",
+        "BusinessCombinationRecognizedIdentifiableAssetsAcquiredAndLiabilitiesAssumedCurrentLiabilitiesAccountsPayable",
+        "OilAndGasSalesPayableCurrent",
+    ], "USD"),
+    ("TradeReceivables", [
+        "AccountsReceivableNetCurrent",
+        "ReceivablesNetCurrent",
+        "TradeAndOtherCurrentReceivables",
+        "AccountsAndOtherReceivablesNetCurrent",
+        "AccountsReceivableNet",
+        "NotesAndLoansReceivableNetCurrent",
+        "AllowanceForDoubtfulAccountsReceivable",
+        "LoansReceivableHeldForSaleAmount",
+        "UnbilledReceivablesCurrent",
+        "AccountsNotesAndLoansReceivableNetCurrent",
+        "AccountsAndNotesReceivableNet",
+        "AllowanceForNotesAndLoansReceivableCurrent",
+        "PremiumsReceivableAtCarryingValue",
+        "ReceivablesFromCustomers",
+        "TradeReceivables",
+        "UnbilledContractsReceivable",
+        "FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLossCurrent",
+        "ReceivablesLongTermContractsOrPrograms",
+        "OilAndGasJointInterestBillingReceivablesCurrent",
+        "ContractWithCustomerAssetAccumulatedAllowanceForCreditLoss",
+    ], "USD"),
+    ("TreasuryShares", [
+        "TreasuryStockValue",
+        "TreasuryStockCommonShares",
+        "TreasuryStockShares",
+        "TreasuryShares",
+    ], "USD"),
+    ("UnearnedRevenue", [
+        "UnearnedRevenue",
+    ], "USD"),
+    ("CashAndCashEquivalents", [
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    ], "USD"),
+    ("CommonSharesOutstanding", [
+        "CommonStockSharesOutstanding",
+        "CommonStockSharesIssued",
+    ], "shares"),
+    ("CommonEquityTierOneCapitalRatio", [
+        "CommonEquityTierOneCapitalRatioToRiskWeightedAssets",
+    ], "pure"),
+    ("TierOneCapitalRatio", [
+        "TierOneRiskBasedCapitalRatio",
+    ], "pure"),
+    ("TotalCapitalRatioRiskBased", [
+        "TotalRiskBasedCapitalRatio",
+    ], "pure"),
+    ("TierOneLeverageRatio", [
+        "TierOneLeverageCapitalRatioToAverageAssets",
+    ], "pure"),
+]
+
+_CF_WATERFALL = [
+    ("AcquisitionsNet", [
+        "PaymentsToAcquireBusinessesNetOfCashAcquired",
+        "PaymentsToAcquireBusinessesGross",
+        "PaymentsToAcquireBusinessesAndInterestInAffiliates",
+        "AcquisitionOfSubsidiariesNetOfCashAcquired",
+    ], "USD"),
+    ("CapitalExpenses", [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+        "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        "PaymentsToAcquireOtherProductiveAssets",
+        "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+    ], "USD"),
+    ("CapitalLeasePaymentsCF", [
+        "RepaymentsOfLongTermCapitalLeaseObligations",
+    ], "USD"),
+    ("CashAndCashEquivalents", [
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+        "CashAndCashEquivalents",
+        "CashAndBankBalancesAtCentralBanks",
+    ], "USD"),
+    ("ChangeInAccruedLiabilities", [
+        "IncreaseDecreaseInAccruedLiabilities",
+        "IncreaseDecreaseInEmployeeRelatedLiabilities",
+    ], "USD"),
+    ("ChangeInDeferredRevenue", [
+        "IncreaseDecreaseInContractWithCustomerLiability",
+        "IncreaseDecreaseInDeferredRevenue",
+    ], "USD"),
+    ("ChangeInInventory", [
+        "IncreaseDecreaseInInventories",
+        "AdjustmentsForDecreaseIncreaseInInventories",
+    ], "USD"),
+    ("ChangeInOtherWorkingCapital", [
+        "IncreaseDecreaseInPrepaidDeferredExpenseAndOtherAssets",
+        "IncreaseDecreaseInOtherOperatingAssets",
+        "IncreaseDecreaseInOtherOperatingLiabilities",
+        "IncreaseDecreaseInOtherCurrentAssets",
+        "IncreaseDecreaseInOtherOperatingCapitalNet",
+        "IncreaseDecreaseInOtherCurrentLiabilities",
+        "IncreaseDecreaseInOperatingCapital",
+    ], "USD"),
+    ("ChangeInPayables", [
+        "IncreaseDecreaseInAccountsPayable",
+        "IncreaseDecreaseInAccountsPayableAndAccruedLiabilities",
+        "AdjustmentsForIncreaseDecreaseInTradeAccountPayable",
+    ], "USD"),
+    ("ChangeInReceivables", [
+        "IncreaseDecreaseInAccountsReceivable",
+        "IncreaseDecreaseInReceivables",
+        "AdjustmentsForDecreaseIncreaseInTradeAccountReceivable",
+        "IncreaseDecreaseInAccountsAndNotesReceivable",
+    ], "USD"),
+    ("CommonDividendsPaid", [
+        "DividendsCommonStockCash",
+        "DividendsCommonStock",
+        "Dividends",
+        "DividendsPaid",
+        "DividendsPaidClassifiedAsFinancingActivities",
+        "DividendsCash",
+    ], "USD"),
+    ("DebtProceeds", [
+        "ProceedsFromIssuanceOfLongTermDebt",
+        "ProceedsFromNotesPayable",
+        "ProceedsFromConvertibleDebt",
+        "ProceedsFromIssuanceOfDebt",
+        "ProceedsFromShortTermDebt",
+        "ProceedsFromLongTermLinesOfCredit",
+        "ProceedsFromBorrowingsClassifiedAsFinancingActivities",
+        "ProceedsFromIssuanceOfSeniorLongTermDebt",
+        "ProceedsFromBankDebt",
+        "ProceedsFromIssuanceOfUnsecuredDebt",
+        "ProceedsFromNoncurrentBorrowings",
+        "ProceedsFromIssuanceOfMediumTermNotes",
+    ], "USD"),
+    ("DebtRepayments", [
+        "RepaymentsOfLongTermDebt",
+        "RepaymentsOfNotesPayable",
+        "RepaymentsOfDebt",
+        "RepaymentsOfLongTermLinesOfCredit",
+        "RepaymentsOfShortTermDebt",
+        "RepaymentsOfBorrowingsClassifiedAsFinancingActivities",
+        "RepaymentsOfSeniorDebt",
+        "RepaymentsOfNoncurrentBorrowings",
+        "RepaymentsOfCurrentBorrowings",
+    ], "USD"),
+    ("DeferredIncomeTaxCF", [
+        "DeferredIncomeTaxesAndTaxCredits",
+    ], "USD"),
+    ("DepreciationAmortizationCF", [
+        # CF non-cash add-back: these appear as operating activity adjustments
+        # in the cash flow statement filed under 10-K (not IS depreciation)
+        "DepreciationDepletionAndAmortization",
+        "DepreciationAndAmortization",
+        "Depreciation",
+        "OtherDepreciationAndAmortization",
+        "DepreciationAmortizationAndAccretionNet",
+        "DepreciationNonproduction",
+        "DepreciationAndAmortizationExcludingAssetRetirementObligation",
+    ], "USD"),
+    ("DistributionsToMinorityInterests", [
+        "PaymentsOfDividends",
+        "PaymentsToMinorityShareholders",
+        "PaymentsOfDividendsMinorityInterest",
+    ], "USD"),
+    ("DivestitureProceeds", [
+        "ProceedsFromDivestitureOfBusinesses",
+        "ProceedsFromDivestitureOfBusinessesNetOfCashDivested",
+        "ProceedsFromDivestitureOfInterestInConsolidatedSubsidiaries",
+    ], "USD"),
+    ("EquityExpenseIncome(BuybackIssued)", [
+        "ProceedsFromIssuanceOfCommonStock",
+        "PaymentsForRepurchaseOfCommonStock",
+        "ProceedsFromSaleOfTreasuryStock",
+    ], "USD"),
+    ("FinanceLeasePayments", [
+        "FinanceLeasePrincipalPayments",
+    ], "USD"),
+    ("ForeignExchangeEffectOnCash", [
+        "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+        "EffectOfExchangeRateOnCashAndCashEquivalents",
+    ], "USD"),
+    ("GainLossOnAssetSalesCF", [
+        "GainLossOnDispositionOfAssets",
+        "AdjustmentsForLossesGainsOnDisposalOfNoncurrentAssets",
+        "GainLossOnSaleOfAssets",
+    ], "USD"),
+    ("ImpairmentChargesCF", [
+        "ImpairmentOfLongLivedAssetsHeldForUse",
+        "ImpairmentOfLongLivedAssetsToBeDisposedOf",
+        "AdjustmentsForImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
+        "ImpairmentOfInvestments",
+    ], "USD"),
+    ("InvestmentProceeds", [
+        "ProceedsFromMaturitiesPrepaymentsAndCallsOfAvailableForSaleSecurities",
+        "ProceedsFromSaleOfAvailableForSaleSecuritiesDebt",
+        "ProceedsFromSaleAndMaturityOfMarketableSecurities",
+        "ProceedsFromSaleAndMaturityOfAvailableForSaleSecurities",
+        "ProceedsFromSaleOfShortTermInvestments",
+        "ProceedsFromMaturitiesPrepaymentsAndCallsOfHeldToMaturitySecurities",
+        "ProceedsFromSaleOfAvailableForSaleSecurities",
+    ], "USD"),
+    ("InvestmentPurchases", [
+        "PaymentsToAcquireAvailableForSaleSecuritiesDebt",
+        "PaymentsToAcquireInvestments",
+        "PaymentsToAcquireMarketableSecurities",
+        "PaymentsToAcquireShortTermInvestments",
+        "PaymentsToAcquireOtherInvestments",
+        "PaymentsToAcquireHeldToMaturitySecurities",
+    ], "USD"),
+    ("NetCashFromFinancingActivities", [
+        "NetCashProvidedByUsedInFinancingActivities",
+        "CashFlowsFromUsedInFinancingActivities",
+        "NetCashProvidedByUsedInFinancingActivitiesContinuingOperations",
+    ], "USD"),
+    ("NetCashFromInvestingActivities", [
+        "NetCashProvidedByUsedInInvestingActivities",
+        "CashFlowsFromUsedInInvestingActivities",
+        "NetCashProvidedByUsedInInvestingActivitiesContinuingOperations",
+    ], "USD"),
+    ("NetCashFromOperatingActivities", [
+        "NetCashProvidedByUsedInOperatingActivities",
+        "CashFlowsFromUsedInOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    ], "USD"),
+    ("NetChangeInCash", [
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseExcludingExchangeRateEffect",
+        "EffectOfExchangeRateChangesOnCashAndCashEquivalents",
+        "IncreaseDecreaseInCashAndCashEquivalents",
+        "CashAndCashEquivalentsPeriodIncreaseDecrease",
+    ], "USD"),
+    ("OperatingLeasePayments", [
+        "OperatingLeasePayments",
+    ], "USD"),
+    ("OtherNonCashItemsCF", [
+        "OtherNoncashIncomeExpense",
+        "OtherNoncashIncome",
+    ], "USD"),
+    ("PaymentsOfDebtIssuanceCosts", [
+        "PaymentsOfDebtIssuanceCosts",
+        "PaymentsOfFinancingCosts",
+    ], "USD"),
+    ("ProceedsFromMaturitiesOfInvestments", [
+        "ProceedsFromMaturitiesPrepaymentsAndCallsOfShorttermInvestments",
+        "ProceedsFromMaturitiesOfInvestments",
+    ], "USD"),
+    ("ProceedsFromSaleOfPPE", [
+        "ProceedsFromSaleOfPropertyPlantAndEquipment",
+        "ProceedsFromSaleOfProductiveAssets",
+    ], "USD"),
+    ("ProvisionForDoubtfulAccountsCF", [
+        "ProvisionForDoubtfulAccounts",
+    ], "USD"),
+    ("PurchaseOfIntangibleAssets", [
+        "PaymentsToAcquireIntangibleAssets",
+    ], "USD"),
+    ("StockBasedCompensationCF", [
+        "AdjustmentsForSharebasedPayments",
+        "EmployeeServiceShareBasedCompensationAllocationOfRecognizedPeriodCostsCapitalizedAmount",
+    ], "USD"),
+    ("StockIssuanceProceeds", [
+        "ProceedsFromStockOptionsExercised",
+        "ProceedsFromIssuanceOfPreferredStockAndPreferenceStock",
+        "ProceedsFromStockPlans",
+        "ProceedsFromIssuingShares",
+        "ProceedsFromIssuanceOrSaleOfEquity",
+        "ProceedsFromIssuanceOfShares",
+    ], "USD"),
+    ("StockRepurchasePayments", [
+        "PaymentsToAcquireOrRedeemEntitysShares",
+        "PaymentsForRepurchaseOfEquity",
+        "PaymentsForRepurchaseOfPreferredStockAndPreferenceStock",
+        "PurchaseOfTreasuryShares",
+        "PaymentsForRepurchaseOfOtherEquity",
+    ], "USD"),
+    ("DepreciationExpense", [
+        "DepreciationDepletionAndAmortization",
+        "DepreciationAndAmortization",
+    ], "USD"),
+    ("DepreciationAndAmortization", [
+        "DepreciationAndAmortization",
+        "DepreciationDepletionAndAmortization",
+    ], "USD"),
+    ("PropertyPlantAndEquipmentAdditions", [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsForCapitalImprovements",
+    ], "USD"),
+    ("InterestPaidCF", [
+        "InterestPaidNet",
+        "InterestPaid",
+    ], "USD"),
+    ("DividendsPaid", [
+        "PaymentsOfDividendsCommonStock",
+        "PaymentsOfDividends",
+        "PaymentsOfOrdinaryDividends",
+    ], "USD"),
+]
+
+
+
+# -----------------------------------------------------------------------------
+# Low-confidence (0.30-0.49) but high-count (>500 companies) CF additions
+# These are correctly-mapped CF concepts penalised by edgartools' conservative
+# confidence model.  Appended AFTER the high-conf entries so they never
+# displace a better-matched concept.
+# -----------------------------------------------------------------------------
+_CF_LOW_CONF_ADDITIONS = [
+    # NetCashFromOperatingActivities supplemental line items (non-cash add-backs)
+    ("_cf_noncash_lease",     ["IncreaseDecreaseInOperatingLeaseLiability",
+                                "RightOfUseAssetObtainedInExchangeForOperatingLeaseLiability",
+                                "OperatingLeaseRightOfUseAssetAmortizationExpense"], "USD"),
+    # ChangeInOtherWorkingCapital additions
+    ("_cf_wc_prepaid",        ["IncreaseDecreaseInPrepaidExpense",
+                                "IncreaseDecreaseInPrepaidDeferredExpenseAndOtherAssets"], "USD"),
+    ("_cf_wc_accrued",        ["IncreaseDecreaseInAccruedLiabilitiesAndOtherOperatingLiabilities",
+                                "IncreaseDecreaseInAccruedIncomeTaxesPayable"], "USD"),
+    # DebtProceeds additions
+    ("_cf_debt_proceeds",     ["ProceedsFromRelatedPartyDebt",
+                                "ProceedsFromLinesOfCredit",
+                                "ProceedsFromIssuanceOfPrivatePlacement",
+                                "ProceedsFromIssuanceInitialPublicOffering"], "USD"),
+    # DebtRepayments additions
+    ("_cf_debt_repay",        ["RepaymentsOfRelatedPartyDebt",
+                                "RepaymentsOfLinesOfCredit",
+                                "RepaymentsOfNotesPayable"], "USD"),
+    # DividendsPaid additions (PaymentsOfDividendsCommonStock is low-conf but correct)
+    ("_cf_dividends",         ["PaymentsOfDividendsCommonStock",
+                                "PaymentsOfDividends",
+                                "PaymentsOfOrdinaryDividends",
+                                "MinorityInterestDecreaseFromDistributionsToNoncontrollingInterestHolders"], "USD"),
+    # NetCashFromFinancingActivities misc additions
+    ("_cf_fin_misc",          ["PaymentsRelatedToTaxWithholdingForShareBasedCompensation",
+                                "PaymentsOfStockIssuanceCosts",
+                                "ProceedsFromPaymentsForOtherFinancingActivities",
+                                "PaymentsForProceedsFromOtherInvestingActivities"], "USD"),
+    # IncomeTaxes CF paid (IncomeTaxesPaid is correctly IncomeTaxes in CF context)
+    ("IncomeTaxesPaidCF",     ["IncomeTaxesPaid",
+                                "IncomeTaxesPaidNet"], "USD"),
+]
+
+# Sectors where _SECTOR_OVERRIDES should PREPEND (fire before base waterfall).
+# Used for cases where a universal concept EXISTS but picks a sub-component,
+# so the sector-specific concept must be tried first.
+# Real Estate: OperatingLeaseLeaseIncome must beat RevenueFromContractWithCustomer
+# Financial Services: InterestIncomeExpenseNet must beat ASC 606 sub-components
+_SECTOR_PREPEND_OVERRIDE = {"Real Estate", "Financial Services"}
+
+# -----------------------------------------------------------------------------
+# Period discovery
+# -----------------------------------------------------------------------------
+
+_ANCHOR_CONCEPTS = [
+    ("Revenues", "USD", False),
+    ("RevenueFromContractWithCustomerExcludingAssessedTax", "USD", False),
+    ("SalesRevenueNet", "USD", False),
+    ("NetIncomeLoss", "USD", False),
+    ("Assets", "USD", True),
+]
+
+
+def _discover_periods(us_gaap: dict, max_years: int) -> list[str]:
+    """
+    Find all annual period-end dates from anchor concepts.
+    Returns sorted newest-first, capped at max_years.
+    """
+    all_ends: set[str] = set()
+    for concept, unit, instant in _ANCHOR_CONCEPTS:
+        vals = _extract_annual(us_gaap, concept, unit, is_instant=instant)
+        all_ends.update(vals.keys())
+
+    periods = sorted(all_ends, reverse=True)
+
+    if max_years and len(periods) > max_years:
+        periods = periods[:max_years]
+
+    return periods
+
+
+# -----------------------------------------------------------------------------
+# Waterfall resolution -> DataFrame
+# -----------------------------------------------------------------------------
+
+def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
+                       is_instant: bool = False,
+                       ticker: str = "",
+                       sector: str = "") -> tuple[pd.DataFrame, dict]:
+    """
+    Resolve a waterfall into a DataFrame compatible with StatementProfile.
+
+    Phase 1 additions:
+    - ticker: if provided, prepends company-specific concept mappings
+              (from edgartools company_mappings/*.json) to each waterfall entry
+    - sector: if provided, splices sector-specific concept priorities
+              (from gaap_mappings industry_overrides) after the base concepts
+
+    Returns
+    -------
+    df : DataFrame with columns [standard_concept, concept, <period_dates...>]
+    resolution_log : {edgartools_label: resolved_raw_concept_or_None}
+    """
+    rows = []
+    log  = {}
+
+    # Per-ticker concept patches (e.g. tsla:, msft: extension tags)
+    company_patch: dict[str, list[str]] = _COMPANY_MAPPINGS.get(ticker.upper(), {})
+
+    # Per-sector concept priority overrides
+    sector_override: dict[str, list[str]] = _SECTOR_OVERRIDES.get(sector, {})
+
+    for label, concepts, unit in waterfall:
+        # Build augmented concept list:
+        #   1. Company-specific concepts (extension tags, highest priority)
+        #   2. Sector-specific PREPEND concepts (override base for sector)
+        #   3. Base waterfall concepts (universal, sorted by company_count)
+        #   4. Sector-specific APPEND concepts (fallback additions)
+        #
+        # Sectors in _SECTOR_PREPEND_OVERRIDE get their concepts tried BEFORE
+        # the base waterfall -- critical for REITs where the universal concept
+        # (RevenueFromContractWithCustomer) exists but picks a sub-component.
+        # All other sectors get their overrides appended as fallbacks.
+        company_concepts = company_patch.get(label, [])
+        sector_ov        = sector_override.get(label, [])
+
+        if sector in _SECTOR_PREPEND_OVERRIDE and sector_ov:
+            # Prepend sector concepts before base (REITs, Insurance, Banks for Revenue)
+            prepend = [c for c in sector_ov if c not in company_concepts]
+            append  = []
+            base    = [c for c in concepts if c not in company_concepts and c not in prepend]
+            augmented = company_concepts + prepend + base + append
+        else:
+            # Default: sector concepts as fallback after base
+            append  = [c for c in sector_ov if c not in concepts and c not in company_concepts]
+            augmented = company_concepts + concepts + append
+
+        resolved_concept = None
+        period_vals = {}
+
+        for concept in augmented:
+            vals = _extract_annual(us_gaap, concept, unit, is_instant=is_instant)
+            if vals:
+                resolved_concept = concept
+                period_vals = vals
+                break
+
+        row = {
+            "standard_concept": label,
+            "concept":          resolved_concept or "",
+        }
+        for p in periods:
+            row[p] = period_vals.get(p)
+
+        rows.append(row)
+        log[label] = resolved_concept
+
+    df = pd.DataFrame(rows)
+    return df, log
+
+
+# -----------------------------------------------------------------------------
+# Reconciliation passes
+# -----------------------------------------------------------------------------
+
+def _reconcile(is_df: pd.DataFrame, bs_df: pd.DataFrame,
+               cf_df: pd.DataFrame, periods: list,
+               ticker: str, sector: str = "") -> list[str]:
+    """
+    Post-hoc reconciliation and quality checks.
+    Returns a list of warning strings (empty = clean).
+    """
+    flags = []
+
+    if periods:
+        p0 = periods[0]  # most recent
+
+        # -- Revenue: sector-specific sum-of-components + cross-checks ----------
+
+        rev_resolved  = _cell(is_df, "Revenue",  p0)
+        rev_alt       = _cell(is_df, "Revenues", p0)
+        nii           = _cell(is_df, "NetInterestIncome", p0)
+        nonint        = _cell(is_df, "NonInterestIncome", p0)
+        premiums      = _cell(is_df, "NetInterestIncome", p0)   # reused below
+
+        # -- 1. Banks: Revenue = InterestIncomeExpenseNet + NoninterestIncome --
+        # InterestIncomeExpenseNet alone = NII (~52-70% of total revenue).
+        # NoninterestIncome (~31 tickers) provides the remaining fee/trading revenue.
+        # Also guards against SFNC-style overstatement where InterestIncomeExpenseNet
+        # is GROSS interest (larger than actual net revenue).
+        if sector in ("Financial Services",):
+            # FinancialServicesRevenue = InterestIncomeExpenseNet (true NII)
+            # NOT NetInterestIncome which resolves to gross sub-components
+            fsr_val    = _cell(is_df, "FinancialServicesRevenue", p0)
+            nonint_val = _cell(is_df, "NonInterestIncome",        p0)
+
+            # Detect insurer vs bank: check which raw concept FSR resolved to.
+            fsr_concept = ""
+            _fsr_mask = is_df["standard_concept"] == "FinancialServicesRevenue"
+            if _fsr_mask.any():
+                fsr_concept = is_df.loc[_fsr_mask].iloc[0].get("concept", "")
+            is_insurer = fsr_concept == "PremiumsEarnedNet"
+
+            # -- 1a. Bank sum: NII + NoninterestIncome --
+            # Guard: NonInt must be >5% of FSR (avoids FISV/V/MA false positives)
+            if (not is_insurer
+                    and fsr_val and fsr_val > 1e8
+                    and nonint_val
+                    and abs(nonint_val) > 1e7
+                    and abs(nonint_val) > fsr_val * 0.05):
+                bank_total = fsr_val + abs(nonint_val)
+                # If Revenues exists and is larger, use it instead
+                # (catches IBKR where NII+NonInt undershoots total revenue,
+                # and small banks where NII+NonInt overshoots)
+                if rev_alt and rev_alt > 1e8 and rev_alt > fsr_val:
+                    if bank_total > rev_alt * 1.10:
+                        # Over-reporting: cap at Revenues
+                        if rev_alt > (rev_resolved or 0):
+                            _fill_row(is_df, "Revenue",
+                                      {p: _cell(is_df, "Revenues", p)
+                                       for p in periods})
+                            rev_resolved = rev_alt
+                            flags.append(
+                                f"Bank revenue: sum({bank_total/1e9:.1f}B) > "
+                                f"Revenues({rev_alt/1e9:.1f}B) -- capped"
+                            )
+                    elif rev_alt > bank_total * 1.10:
+                        # Under-reporting: Revenues has more (IBKR pattern)
+                        _fill_row(is_df, "Revenue",
+                                  {p: _cell(is_df, "Revenues", p)
+                                   for p in periods})
+                        rev_resolved = rev_alt
+                        flags.append(
+                            f"Bank revenue: Revenues({rev_alt/1e9:.1f}B) > "
+                            f"sum({bank_total/1e9:.1f}B) -- using Revenues"
+                        )
+                    elif bank_total > (rev_resolved or 0):
+                        # Normal bank sum
+                        _fill_row(is_df, "Revenue",
+                                  {p: (_cell(is_df, "FinancialServicesRevenue", p) or 0) +
+                                      abs(_cell(is_df, "NonInterestIncome", p) or 0)
+                                   for p in periods})
+                        rev_resolved = bank_total
+                        flags.append(
+                            f"Bank revenue: NII({fsr_val/1e9:.1f}B) + "
+                            f"NonInt({nonint_val/1e9:.1f}B) = {bank_total/1e9:.1f}B"
+                        )
+                elif bank_total > (rev_resolved or 0):
+                    # No Revenues tag available, use bank sum as-is
+                    _fill_row(is_df, "Revenue",
+                              {p: (_cell(is_df, "FinancialServicesRevenue", p) or 0) +
+                                  abs(_cell(is_df, "NonInterestIncome", p) or 0)
+                               for p in periods})
+                    rev_resolved = bank_total
+                    flags.append(
+                        f"Bank revenue: NII({fsr_val/1e9:.1f}B) + "
+                        f"NonInt({nonint_val/1e9:.1f}B) = {bank_total/1e9:.1f}B"
+                    )
+
+            # -- 1b. Insurer: PremiumsEarned + InvestmentIncome (or Revenues) --
+            elif is_insurer and fsr_val and fsr_val > 1e8:
+                ni_inv = _cell(is_df, "InterestAndDividendIncome", p0)
+                if ni_inv and ni_inv > 1e7:
+                    ins_total = fsr_val + ni_inv
+                    if ins_total > (rev_resolved or 0):
+                        _fill_row(is_df, "Revenue",
+                                  {p: (_cell(is_df, "FinancialServicesRevenue", p) or 0) +
+                                      (_cell(is_df, "InterestAndDividendIncome", p) or 0)
+                                   for p in periods})
+                        rev_resolved = ins_total
+                        flags.append(
+                            f"Insurance revenue: Premiums({fsr_val/1e9:.1f}B) + "
+                            f"InvIncome({ni_inv/1e9:.1f}B) = {ins_total/1e9:.1f}B"
+                        )
+                elif rev_alt and rev_alt > fsr_val * 1.05 and rev_alt > 1e8:
+                    _fill_row(is_df, "Revenue",
+                              {p: _cell(is_df, "Revenues", p) for p in periods})
+                    rev_resolved = rev_alt
+                    flags.append(
+                        f"Insurance revenue: Revenues({rev_alt/1e9:.1f}B) > "
+                        f"PremiumsEarned({fsr_val/1e9:.1f}B) -- using Revenues"
+                    )
+
+            # -- 1c. FS fallback: Revenues cross-check --
+            # For brokers/investment banks where neither bank sum nor insurer
+            # path fires (JEF pattern: FSR=ManagementFeesRevenue, NonInt=None)
+            elif (rev_alt and rev_resolved
+                    and rev_alt > rev_resolved * 1.10 and rev_alt > 1e8):
+                _fill_row(is_df, "Revenue",
+                          {p: _cell(is_df, "Revenues", p) for p in periods})
+                flags.append(
+                    f"FS revenue cross-check: Revenues({rev_alt/1e9:.1f}B) > "
+                    f"Revenue({rev_resolved/1e9:.1f}B) -- substituting"
+                )
+                rev_resolved = rev_alt
+
+        # -- 2. All sectors: Revenues > resolved Revenue -> substitute ----------
+        # Handles BG/ADM commodity traders (ASC606 picks net, Revenues=gross)
+        # and EXR/COLD storage REITs (OperatingLeaseLeaseIncome is a sub-component)
+        if (rev_resolved is not None and rev_alt is not None
+                and rev_alt > rev_resolved * 1.5 and rev_alt > 1e8):
+            _fill_row(is_df, "Revenue",
+                      {p: _cell(is_df, "Revenues", p) for p in periods})
+            flags.append(
+                f"Revenue cross-check: Revenues ({rev_alt/1e9:.1f}B) >> "
+                f"resolved Revenue ({rev_resolved/1e9:.1f}B) -- substituting"
+            )
+
+        # -- 1. Revenue sanity: if Revenue resolved to 0, check if
+        #    it's a REIT/utility/bank that uses a sector-specific tag
+        rev_val = _cell(is_df, "Revenue", p0)
+        if rev_val is None or rev_val == 0:
+            flags.append(
+                f"Revenue resolved to 0 for {p0} -- likely a sector-specific "
+                f"tag not in the waterfall (REIT, utility, or bank)"
+            )
+
+        # -- 2. Equity: if AllEquityBalance is 0 but AllEquityBalanceIncludingMinorityInterest
+        #    has a value, copy it.  Some filers only tag the inclusive version.
+        eq  = _cell(bs_df, "AllEquityBalance", p0)
+        eqi = _cell(bs_df, "AllEquityBalanceIncludingMinorityInterest", p0)
+        if (eq is None or eq == 0) and eqi and eqi != 0:
+            _fill_row(bs_df, "AllEquityBalance", {p: _cell(bs_df, "AllEquityBalanceIncludingMinorityInterest", p)
+                                                   for p in periods})
+            flags.append("Equity: using inclusive-of-minority-interest figure")
+
+        # -- 3. Gross profit back-calc if missing
+        gp   = _cell(is_df, "GrossProfit", p0)
+        rev  = _cell(is_df, "Revenue", p0)
+        cogs = _cell(is_df, "CostOfGoodsAndServicesSold", p0)
+        if (gp is None or gp == 0) and rev and cogs:
+            computed = {p: (_cell(is_df, "Revenue", p) or 0) - (_cell(is_df, "CostOfGoodsAndServicesSold", p) or 0)
+                        for p in periods}
+            _fill_row(is_df, "GrossProfit", computed)
+
+        # -- 4. Net debt sanity: LT debt should be > 0 for companies
+        #    with interest expense > 0
+        ie_val = _cell(is_df, "InterestExpense", p0)
+        lt_val = _cell(bs_df, "LongTermDebt", p0)
+        if ie_val and abs(ie_val) > 1e6 and (lt_val is None or lt_val == 0):
+            flags.append(
+                f"Interest expense ${ie_val/1e6:.0f}M but LongTermDebt=0 -- "
+                f"debt tag may use a non-standard XBRL concept"
+            )
+
+        # -- 5. CF InterestPaid: copy to CF InterestExpense label for
+        #    compatibility with existing profile's interest_paid property
+        ie_cf = _cell(cf_df, "InterestPaidCF", p0)
+        if ie_cf and ie_cf != 0:
+            # The existing CashFlowProfile.interest_paid looks for
+            # standard_concept == 'InterestExpense' in the CF dataframe.
+            # We mapped CF interest to 'InterestPaidCF' to avoid collision
+            # with the IS InterestExpense.  Add an alias row.
+            alias_vals = {p: _cell(cf_df, "InterestPaidCF", p) for p in periods}
+            _add_row(cf_df, "InterestExpense", "InterestPaidNet", alias_vals)
+
+    return flags
+
+
+def _cell(df: pd.DataFrame, label: str, period: str):
+    """Extract a single value from a resolved DataFrame."""
+    if df is None or df.empty:
+        return None
+    mask = df["standard_concept"] == label
+    if not mask.any():
+        return None
+    row = df.loc[mask].iloc[0]
+    val = row.get(period)
+    if pd.isna(val):
+        return None
+    return float(val)
+
+
+def _fill_row(df: pd.DataFrame, label: str, values: dict) -> None:
+    """Overwrite values in an existing row."""
+    mask = df["standard_concept"] == label
+    if not mask.any():
+        return
+    idx = df.index[mask][0]
+    for col, val in values.items():
+        if col in df.columns and val is not None:
+            df.at[idx, col] = val
+
+
+def _add_row(df: pd.DataFrame, label: str, concept: str, values: dict) -> None:
+    """Append a new row to a DataFrame."""
+    row = {"standard_concept": label, "concept": concept}
+    row.update(values)
+    new = pd.DataFrame([row])
+    # Append in-place via concat
+    combined = pd.concat([df, new], ignore_index=True)
+    df.drop(df.index, inplace=True)
+    for col in combined.columns:
+        df[col] = combined[col].values
+
+
+# -----------------------------------------------------------------------------
+# FactsDataProcessor -- drop-in replacement for RobustDataProcessor
+# -----------------------------------------------------------------------------
+
+class FactsDataProcessor:
+    """
+    Loads financial data from the SEC company facts API.
+
+    Interface matches RobustDataProcessor:
+        .load_data()  -> bool
+        .financials   -> dict with keys: income_statement, balance_sheet, cash_flow
+        .market_cap   -> float
+        .ticker       -> str
+        .sector       -> str
+
+    Additional diagnostics:
+        .periods          -> list[str]  all discovered annual periods
+        .resolution_log   -> dict       {statement: {label: resolved_concept}}
+        .data_flags       -> list[str]  reconciliation warnings
+    """
+
+    def __init__(self, ticker: str, sector: str = "General",
+                 cache=None):
+        self.ticker  = ticker.upper()
+        self.sector  = sector
+        self._cache  = cache   # unused for now; reserved for future caching
+
+        self.financials:     dict = {}
+        self.market_cap:     float = 0.0
+        self.periods:        list[str] = []
+        self.resolution_log: dict = {}
+        self.data_flags:     list[str] = []
+
+    def load_data(self, max_years: int = 10) -> bool:
+        """
+        Fetch and resolve all financial data.
+
+        Parameters
+        ----------
+        max_years : Maximum number of annual periods to return.
+                    Newest first.  Set to 0 or None for all available.
+
+        Returns True on success, False if no usable data found.
+        """
+        print(f"[{self.ticker}] FactsDataProcessor: loading from company facts API...")
+
+        # -- Resolve CIK --------------------------------------------------
+        cik = _get_cik(self.ticker)
+        if not cik:
+            print(f"[{self.ticker}] CIK not found.")
+            return False
+
+        # -- Fetch company facts blob -------------------------------------
+        facts = _get_facts(cik)
+        if not facts:
+            print(f"[{self.ticker}] Company facts not available.")
+            return False
+
+        us_gaap = facts.get("facts", {}).get("us-gaap", {})
+        if not us_gaap:
+            print(f"[{self.ticker}] No us-gaap facts found.")
+            return False
+
+        # -- Discover periods ---------------------------------------------
+        periods = _discover_periods(us_gaap, max_years or 0)
+        if not periods:
+            print(f"[{self.ticker}] No annual periods found.")
+            return False
+
+        self.periods = periods
+        print(f"[{self.ticker}] Found {len(periods)} annual periods: "
+              f"{periods[0]} -> {periods[-1]}")
+
+        # -- Resolve waterfalls -------------------------------------------
+        # Pass ticker + sector so company patches and sector overrides apply
+        is_df, is_log = _resolve_waterfall(us_gaap, _IS_WATERFALL, periods,
+                                           is_instant=False,
+                                           ticker=self.ticker, sector=self.sector)
+        bs_df, bs_log = _resolve_waterfall(us_gaap, _BS_WATERFALL, periods,
+                                           is_instant=True,
+                                           ticker=self.ticker, sector=self.sector)
+        cf_df, cf_log = _resolve_waterfall(us_gaap, _CF_WATERFALL, periods,
+                                           is_instant=False,
+                                           ticker=self.ticker, sector=self.sector)
+
+        self.resolution_log = {
+            "income_statement": is_log,
+            "balance_sheet":    bs_log,
+            "cash_flow":        cf_log,
+        }
+
+        # Log unresolved items
+        for stmt, log in self.resolution_log.items():
+            unresolved = [k for k, v in log.items() if v is None]
+            if unresolved:
+                logger.info("facts_processor: %s %s -- unresolved: %s",
+                            self.ticker, stmt, ", ".join(unresolved))
+
+        # -- Reconciliation -----------------------------------------------
+        self.data_flags = _reconcile(is_df, bs_df, cf_df, periods, self.ticker, self.sector)
+        if self.data_flags:
+            for f in self.data_flags:
+                print(f"[{self.ticker}] DATA FLAG: {f}")
+
+        # -- Package output -----------------------------------------------
+        # -- Sector revenue adjustments (inline, before storing) ---------
+        # These run inside load_data so they apply regardless of which
+        # calling script (orchestrator, validate_pipeline, etc.) uses the data.
+        if periods:
+            p0 = periods[0]
+
+            def _cell_ld(df, label):
+                mask = df["standard_concept"] == label
+                if not mask.any():
+                    return None
+                try:
+                    v = float(df.loc[mask].iloc[0].get(p0))
+                    return v if v == v else None  # NaN check
+                except Exception:
+                    return None
+
+            def _fill_ld(df, label, val):
+                mask = df["standard_concept"] == label
+                if not mask.any() or val is None:
+                    return
+                idx = df.index[mask][0]
+                for p in periods:
+                    # Scale proportionally from p0 base
+                    base = _cell_ld(df, "FinancialServicesRevenue") or 1
+                    p_fsr = None
+                    try:
+                        m = df["standard_concept"] == "FinancialServicesRevenue"
+                        if m.any():
+                            p_fsr = float(df.loc[m].iloc[0].get(p))
+                    except Exception:
+                        pass
+                    p_ni = None
+                    try:
+                        m2 = df["standard_concept"] == "NonInterestIncome"
+                        if m2.any():
+                            p_ni = float(df.loc[m2].iloc[0].get(p))
+                    except Exception:
+                        pass
+                    if p_fsr and p_ni:
+                        df.at[idx, p] = p_fsr + abs(p_ni)
+
+            # Bank sum: FinancialServicesRevenue (=InterestIncomeExpenseNet) + NonInterestIncome
+            if self.sector == "Financial Services":
+                fsr = _cell_ld(is_df, "FinancialServicesRevenue")
+                noi = _cell_ld(is_df, "NonInterestIncome")
+                rev = _cell_ld(is_df, "Revenue")
+                if fsr and fsr > 1e8 and noi and abs(noi) > 1e7:
+                    bank_total = fsr + abs(noi)
+                    if bank_total > (rev or 0):
+                        _fill_ld(is_df, "Revenue", bank_total)
+                        # Also set p0 directly
+                        m = is_df["standard_concept"] == "Revenue"
+                        if m.any():
+                            is_df.at[is_df.index[m][0], p0] = bank_total
+                        logger.info("[%s] Bank revenue: NII(%.1fB)+NonInt(%.1fB)=%.1fB",
+                                    self.ticker, fsr/1e9, noi/1e9, bank_total/1e9)
+
+            # Cross-check: if Revenues > Revenue*1.5 use Revenues (commodity traders)
+            rev2 = _cell_ld(is_df, "Revenue")
+            revs = _cell_ld(is_df, "Revenues")
+            if revs and rev2 and revs > rev2 * 1.5 and revs > 1e8:
+                m = is_df["standard_concept"] == "Revenue"
+                if m.any():
+                    idx = is_df.index[m][0]
+                    for p in periods:
+                        try:
+                            m2 = is_df["standard_concept"] == "Revenues"
+                            if m2.any():
+                                v = is_df.loc[m2].iloc[0].get(p)
+                                if v is not None:
+                                    is_df.at[idx, p] = float(v)
+                        except Exception:
+                            pass
+                logger.info("[%s] Revenue cross-check: Revenues(%.1fB) >> Revenue(%.1fB)",
+                            self.ticker, revs/1e9, rev2/1e9)
+
+        self.financials = {
+            "income_statement": is_df,
+            "balance_sheet":    bs_df,
+            "cash_flow":        cf_df,
+        }
+
+        # -- Market cap (live) --------------------------------------------
+        try:
+            import yfinance as yf
+            self.market_cap = yf.Ticker(self.ticker).info.get("marketCap", 0.0)
+        except Exception:
+            self.market_cap = 0.0
+
+        # -- Summary ------------------------------------------------------
+        resolved_is = sum(1 for v in is_log.values() if v)
+        resolved_bs = sum(1 for v in bs_log.values() if v)
+        resolved_cf = sum(1 for v in cf_log.values() if v)
+        print(f"[{self.ticker}] Resolved: IS={resolved_is}/{len(is_log)}  "
+              f"BS={resolved_bs}/{len(bs_log)}  CF={resolved_cf}/{len(cf_log)}  "
+              f"periods={len(periods)}")
+
+        return True
+
+    def print_resolution_log(self) -> None:
+        """Print which raw XBRL concept resolved for each line item."""
+        for stmt, log in self.resolution_log.items():
+            print(f"\n{'='*60}")
+            print(f"  {stmt.upper()}")
+            print(f"{'='*60}")
+            for label, concept in log.items():
+                status = concept if concept else "** UNRESOLVED **"
+                print(f"  {label:<45s} -> {status}")

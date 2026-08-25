@@ -135,7 +135,7 @@ def validate_ticker(ticker: str, lookback_days: int) -> dict:
         "error":          None,
     }
     try:
-        from insider_transactions import InsiderTransactionLoader
+        from ingestion.insider_transactions import InsiderTransactionLoader
         import edgar
         edgar.set_identity(IDENTITY)
 
