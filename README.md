@@ -602,4 +602,10 @@ See `requirements.txt` for pinned versions. Python 3.10+ required.
 
 ---
 
+## Acknowledgements
+
+This project was developed with [Claude](https://claude.ai) (Anthropic), which assisted with code implementation, debugging, and documentation throughout the development process.
+
+---
+
 *For informational and research purposes only. All output is clearly marked DRAFT and carries the disclaimer: "For informational purposes only. Not investment advice."*
