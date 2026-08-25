@@ -1,9 +1,0 @@
-# peers.csv — manual peer fallback list, used only when yfinance's
-# Industry.top_companies returns fewer than 3 auto-derived peers for a
-# ticker (or fails outright). Optional file — if missing, auto-derive
-# is the only mechanism used.
-#
-# Format: ticker,peer1,peer2,peer3,...  (no header row, comments start with #)
-#
-# Example:
-MU,WDC,STX,SNDK

@@ -7,6 +7,9 @@ xbrl_cache/
 __pycache__/
 *.pyc
 
+# Virtual environment
+.venv/
+
 # Databases
 *.db
 
@@ -19,6 +22,7 @@ probe_csv/
 *.zip
 *.log
 *.tsv.checkpoint
+*.parquet
 
 # Industry raw data
 Industry Files/
@@ -36,3 +40,9 @@ Reports/
 *.pdf
 *.tsv
 ERPbymonth.xlsx
+erp_cache.xlsx
+sp500_metrics_*.xlsx
+
+# Manual/local-only data files
+peers.csv
+ratings.csv
