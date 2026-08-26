@@ -32,7 +32,10 @@ from core.renderer import EquityBriefRenderer
 # For now we assume they live in data_layer.py:
 # from core.data_layer import RobustDataProcessor, CompanyFinancialProfile   # ← old: edgartools single-filing
 from core.data_layer import CompanyFinancialProfile
-from data.facts_processor import FactsDataProcessor, set_identity as _facts_set_identity
+from data.facts_processor import (
+    FactsDataProcessor, set_identity as _facts_set_identity,
+    KNOWN_20F_FILERS, KNOWN_DELISTINGS,
+)
 from financials.fr_y9c import FRY9CFetcher, _FALLBACK_RSSD_MAP as RSSD_MAP
 from ingestion.ownership_loader import OwnershipLoader
 from ingestion.insider_transactions import InsiderTransactionLoader
@@ -263,7 +266,8 @@ def _apply_tone_credibility_adjustment(
     # Added to commentary narrative so it appears in Section 4.
 
     if tone_label == "Confident":   # use raw label for contrast check
-        mr = fundamental.get("periods", [None])[0]
+        _periods_for_contrast = fundamental.get("periods") or []
+        mr = _periods_for_contrast[0] if _periods_for_contrast else None
         if mr:
             # Check for deteriorating signals
             rev_cagr_str = fundamental.get("revenue_cagr", "")
@@ -420,9 +424,18 @@ class EquityAnalystOrchestrator:
         print(f"[1/5] Loading SEC filings and market data...")
         # processor = RobustDataProcessor(ticker, sector=sector, cache=self._cache)   # ← old: edgartools single-filing (3 yrs)
         # if not processor.load_data():                                                # ← old
+        _ticker_upper       = ticker.upper()
+        _is_known_edge_case = _ticker_upper in KNOWN_20F_FILERS or _ticker_upper in KNOWN_DELISTINGS
+
         processor = FactsDataProcessor(ticker, sector=sector)
-        if not processor.load_data(max_years=5):
-            raise RuntimeError(f"Data ingestion failed for {ticker}. Check SEC availability.")
+        _ingestion_ok = processor.load_data(max_years=5)
+        if not _ingestion_ok and not _is_known_edge_case:
+            raise RuntimeError(
+                f"No annual periods found for {ticker}. "
+                f"If this is a foreign filer, it may file 20-F instead of 10-K. "
+                f"If recently acquired, it may be delisted. "
+                f"Run: python scripts/test_ticker_availability.py --universe mag7"
+            )
 
         profile = CompanyFinancialProfile(
             ticker     = ticker,
@@ -432,16 +445,21 @@ class EquityAnalystOrchestrator:
         )
 
         if not profile.periods:
-            raise RuntimeError(f"No financial periods parsed for {ticker}.")
+            if not _is_known_edge_case:
+                raise RuntimeError(f"No financial periods parsed for {ticker}.")
+            print(f"[{ticker}] No financial periods available — continuing with "
+                  f"market-data-only sections (fundamental/risk/valuation will show N/A).")
 
         # ── Skip foreign private issuers (20-F filers) ───────────────────────
         # 20-F companies lack 10-Q/8-K coverage. Section 5 (Management Guidance)
         # and Section 7 (Guidance Tracker) will be empty. Skipping avoids
         # producing a misleading half-populated report.
         # TODO: add 6-K + 20-F MD&A support for foreign filer coverage.
+        # Known-good 20-F filers (KNOWN_20F_FILERS) are exempted -- they've
+        # already been through the 20-F ingestion attempt above.
         _, _, _cached_meta = self._cache.get_financials(ticker)
         _form_type          = (_cached_meta or {}).get("form_type", "")
-        if _form_type == "20-F":
+        if _form_type == "20-F" and _ticker_upper not in KNOWN_20F_FILERS:
             raise RuntimeError(
                 f"{ticker} files a 20-F (foreign private issuer). "
                 f"20-F support is pending — skipping to avoid incomplete output. "
@@ -764,31 +782,44 @@ class EquityAnalystOrchestrator:
         filename    = f"{ticker.upper()}_equity_brief_{datetime.date.today()}.pdf"
         output_path = os.path.join(output_dir, filename)
 
-        self._renderer.render(
-            ticker            = ticker.upper(),
-            sector            = sector,
-            profile           = profile,
-            fundamental       = fundamental,
-            risk              = risk,
-            valuation         = valuation,
-            commentary        = commentary,
-            guidance_analysis = guidance_analysis,
-            track_analysis    = track_analysis,
-            execution_quality     = execution_quality,
-            communication_quality = communication_quality,
-            management_quality    = management_quality,
-            ownership         = ownership_data,
-            insider_activity  = insider_data,
-            short_interest    = short_interest_data,
-            peer_comparison   = peer_comparison_data,
-            company_overview  = company_overview_data,
-            analyst_targets   = analyst_targets_data,
-            price_context     = price_context_data,
-            estimate_revisions = estimate_revisions_data,
-            momentum          = momentum_data,
-            author            = author,
-            output_path       = output_path,
-        )
+        try:
+            self._renderer.render(
+                ticker            = ticker.upper(),
+                sector            = sector,
+                profile           = profile,
+                fundamental       = fundamental,
+                risk              = risk,
+                valuation         = valuation,
+                commentary        = commentary,
+                guidance_analysis = guidance_analysis,
+                track_analysis    = track_analysis,
+                execution_quality     = execution_quality,
+                communication_quality = communication_quality,
+                management_quality    = management_quality,
+                ownership         = ownership_data,
+                insider_activity  = insider_data,
+                short_interest    = short_interest_data,
+                peer_comparison   = peer_comparison_data,
+                company_overview  = company_overview_data,
+                analyst_targets   = analyst_targets_data,
+                price_context     = price_context_data,
+                estimate_revisions = estimate_revisions_data,
+                momentum          = momentum_data,
+                author            = author,
+                output_path       = output_path,
+            )
+        except Exception as e:
+            # Known-edge-case tickers with no fundamental data at all can hit
+            # renderer limitations around fully-empty sections. Degrade to a
+            # clear message rather than crash the whole run; any other ticker
+            # re-raises since that would indicate a real rendering bug.
+            if _is_known_edge_case and not profile.periods:
+                print(f"[{ticker}] PDF rendering failed for this fully-degraded "
+                      f"edge case ({e}). Market data was fetched successfully, "
+                      f"but no PDF could be produced without any fundamental data.")
+                print(f"{'='*60}\n")
+                return None
+            raise
 
         print(f"\n  PDF saved: {output_path}")
         print(f"{'='*60}\n")
@@ -844,6 +875,7 @@ class EquityAnalystOrchestrator:
         current_price = self._fetch_current_price(ticker)
 
         # ── Step 3: Fetch filings ─────────────────────────────────────────────
+        guidance_filings = self._fetch_guidance_filings(ticker) # last 4 10-Qs + 10-K
         filing_obj       = guidance_filings[0] if guidance_filings else None
         _filing_date_str = str(filing_obj.filing_date) if filing_obj else "unknown"
         _narr_hit, earnings_text, _8k_date = self._cache.get_narrative(

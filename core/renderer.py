@@ -2193,11 +2193,28 @@ class EquityBriefRenderer:
             source   = _own.get("_source", "yfinance")
             as_of    = _own.get("_as_of", "current")
 
+            # Retail / Public float = 100% - Institutional% - Insider%.
+            # Only computable when both components are known; capped at 0%
+            # (with a flag) if Institutional + Insider somehow exceed 100%.
+            retail_pct       = None
+            retail_capped    = False
+            if inst_pct is not None and ins_pct is not None:
+                retail_pct = 1.0 - inst_pct - ins_pct
+                if retail_pct < 0:
+                    retail_capped = True
+                    retail_pct    = 0.0
+
             own_summary_header = []
             own_summary_row    = []
             if inst_pct is not None:
                 own_summary_header.append("Institutional")
                 own_summary_row.append(f"{inst_pct*100:.1f}%")
+            if retail_pct is not None:
+                own_summary_header.append("Retail / Public")
+                retail_str = f"{retail_pct*100:.1f}%"
+                if retail_capped:
+                    retail_str += " ⚠"
+                own_summary_row.append(retail_str)
             if ins_pct is not None:
                 own_summary_header.append("Insider")
                 own_summary_row.append(f"{ins_pct*100:.1f}%")
@@ -2264,6 +2281,11 @@ class EquityBriefRenderer:
             )
             if delta_note:
                 footnote_own += f"  {delta_note}."
+            if retail_capped:
+                footnote_own += (
+                    "  ⚠ Institutional + Insider ownership exceeds 100% — "
+                    "Retail/Public float capped at 0%."
+                )
             story.append(Paragraph(footnote_own, styles["meta"]))
             story.append(Spacer(1, 8))
 
