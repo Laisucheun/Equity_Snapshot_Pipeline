@@ -1478,9 +1478,6 @@ class EquityBriefRenderer:
             ["P/B", valuation["pb_current"].get(curr_p, "N/A")]
             + [valuation["pb_historical"].get(p, "N/A") for p in periods]
         )
-        val_rows.append(
-            ["P/TBV", "N/A"] + [valuation["ptbv"].get(p, "N/A") for p in periods]
-        )
         if sg != "financials":
             val_rows.append(
                 ["EV/EBITDA", valuation.get("ev_ebitda_current", {}).get(curr_p, "N/A")]
