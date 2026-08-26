@@ -292,16 +292,44 @@ larger than consolidated revenue.
 
 ## Sector Routing
 
-The pipeline auto-detects sector from SEC EDGAR. Four routing groups:
+The pipeline auto-detects sector from SEC EDGAR (with a small ticker-based
+override list for business-model exceptions that a sector string alone
+can't distinguish — see `_MANAGED_CARE_TICKERS` / `_FREIGHT_BROKER_TICKERS`
+in `core/agents.py`). Routing groups:
 
-| Input sector | Routed to | Behaviour |
+| Input sector / ticker | Routed to | Behaviour |
 |---|---|---|
 | `"Financials"`, `"Banking"`, `"Insurance"` | `financials` | NIM, Efficiency Ratio, ROTCE, Basel III table; suppresses Gross Margin, Altman Z, Interest Coverage |
-| `"Energy"`, `"Oil"`, `"Gas"`, `"Mining"` | `energy` | Op Cost Ratio, EBITDA Margin, Debt/Capital, EV/EBITDA; suppresses Inv. Turnover, Altman Z |
-| `"Utilities"`, `"Utility"` | `utilities` | Full general metric set; suppresses Altman Z; uses CF interest as fallback |
+| `"Energy"`, `"Oil"`, `"Gas"`, `"Mining"` | `energy` | Operating Cost Ratio (a different metric shown under the Gross Margin field, not a comparable figure — see note below), EBITDA Margin, Debt/Capital, EV/EBITDA; suppresses Inv. Turnover, Altman Z |
+| `"Utilities"`, `"Utility"` | `utilities` | Full general ratio set (D/E, Current Ratio, Altman Z suppressed) but Gross Margin is flagged `DEFINITION_MISMATCH` rather than computed — regulated utilities file no COGS line, and the derived figure was previously nonsense (e.g. 96% for AEE) |
+| `"Real Estate"` | `real_estate` | Full general ratio set (REITs will score low on Altman Z due to structural leverage — expected, not a data error) but Gross Margin is flagged `DEFINITION_MISMATCH` — REITs have no COGS/gross-profit line comparable to consensus's NOI-margin convention |
+| CNC, UNH, ELV, CI, CVS, MOH, HUM (ticker-based) | `managed_care` | Gross Margin COGS includes medical claims costs (`PolicyBenefitsAndClaims`) alongside any tagged product/pharmacy COGS — left out, margin was overstated by 40-75pp (e.g. UNH showed 88.7% vs. true ~19%) |
+| CHRW, EXPD (ticker-based) | `freight_broker` | Gross Margin shown as "Net Revenue Margin (≈ Operating Margin)" — purchased-transportation cost isn't exposed via SEC's companyfacts API for these filers, so operating margin is used as the closest available proxy |
 | Everything else | `general` | Complete ratio set: Gross Margin, DSI, FCF Margin, EV/EBITDA, Altman Z |
 
-> **Note:** `"Real Estate"` routes to `general`. REITs receive the full ratio set. Altman Z will score low due to structural leverage — this is expected, not a data error.
+**Gross margin resolution, in order:**
+1. XBRL Revenue − COGS, when both resolve to a plausible figure.
+2. A plausibility guard suppresses COGS when it resolves to a segment/
+   component subtotal or to `LaborAndRelatedExpense` (one line out of a
+   multi-line operating-expense schedule — payroll, not cost of revenue)
+   instead of consolidated COGS. This previously inflated margin to
+   70-100%+ for filers like CAT, DE, UPS, CSX, UNP, ODFL, AAL, LUV, NSC;
+   now shows `N/A (not reported separately)` instead of a wrong number.
+3. **yfinance last-resort fallback** — when steps 1-2 leave Gross Margin,
+   Operating Margin, Net Margin, ROE, ROA, Current Ratio, or D/E fully
+   unresolved (or, for Utilities/REITs, flagged `DEFINITION_MISMATCH`),
+   the pipeline falls back to yfinance rather than show a bare N/A. Every
+   fallback value is labelled inline with its source, e.g.
+   `"59.55% (yfinance annual)"` — never presented as a GAAP/XBRL figure.
+   Financials and Energy are excluded from the Gross Margin fallback
+   specifically, since they deliberately show a different metric (NIM,
+   Operating Cost Ratio) under that field by design; falling back to
+   yfinance's generic gross margin there would silently swap concepts.
+4. Some filers (defense/aerospace, telecom, diversified media/tech,
+   most restaurants) genuinely don't tag a GAAP gross-profit/COGS line
+   anywhere, and yfinance doesn't compute one either — these remain
+   `N/A`. This is a real disclosure limitation, not a pipeline gap; see
+   [Known Limitations](#known-limitations).
 
 ---
 
@@ -330,6 +358,8 @@ Computes profitability and efficiency ratios from the income statement and balan
 
 DSI and Inv. Turnover are additionally suppressed when net inventory ≤ 0 (customer advance payments exceed gross inventory — common in aerospace) or COGS ≤ 0 (contract loss provisions).
 
+> `utilities`, `real_estate`, `managed_care`, and `freight_broker` behave exactly like `general` for every row in this table — the only difference is how Gross Margin is computed/labelled (see [Sector Routing](#sector-routing) above).
+
 ### RiskAgent
 
 Computes leverage, solvency, and cost-of-capital metrics.
@@ -339,6 +369,7 @@ Computes leverage, solvency, and cost-of-capital metrics.
 - **Current Ratio, Quick Ratio, Interest Coverage** — suppressed for financials.
 - **WACC** — computed from live inputs: CAPM cost of equity (Damodaran ERP + beta), rating-implied cost of debt (risk-free rate + OAS spread from FRED), capital structure weights.
 - **Debt Maturity Profile** — sourced from SEC XBRL; shows year-by-year scheduled repayments and weighted average maturity.
+- **Current Ratio, D/E** — fall back to yfinance (labelled `(yfinance TTM)`) for the most recent period when XBRL leaves them unresolved, using the same last-resort logic as FundamentalAgent (see [Sector Routing](#sector-routing)). D/E additionally treats a resolved `0.00x` as unresolved when there's corroborating evidence (material interest expense against debt under 0.5% of total assets — a tag-mismatch signal, not real deleveraging).
 
 ### ValuationAgent
 
@@ -442,7 +473,7 @@ If `pipeline_config.csv` is absent, the pipeline falls back to hardcoded default
 | Source | Data | Access |
 |---|---|---|
 | SEC EDGAR (via edgartools) | 5-year XBRL financial statements | API — requires `edgar.set_identity()` |
-| yfinance | Current price, FY-end historical prices, market cap, analyst targets, estimate revisions, peers, 13-F ownership | API — free |
+| yfinance | Current price, FY-end historical prices, market cap, analyst targets, estimate revisions, peers, 13-F ownership; also a labelled last-resort fallback for Gross/Operating/Net Margin, ROE, ROA, Current Ratio, and D/E when SEC XBRL leaves them unresolved (see [Sector Routing](#sector-routing)) | API — free |
 | FRED (ICE BofA OAS) | Credit spreads by rating tier for cost-of-debt | API — free |
 | Damodaran (NYU Stern) | Implied equity risk premium — auto-downloaded and cached | Public URL — auto-refreshed |
 | Motley Fool / EDGAR 8-K | Earnings call transcripts | Scraped / SEC EDGAR |
@@ -529,6 +560,16 @@ python utils/diagnose_tags.py TSLA --out ./diag_out
 
 ## Validation Results
 
+> This section validates **net margin**. Gross margin has its own, separate,
+> more recent validation — run `python scripts/validate_gross_margin.py`
+> (full methodology and current results in
+> `scripts/gross_margin_validation_report.csv`; see also
+> [Sector Routing](#sector-routing) for how gross margin is now computed).
+> Latest run: 380 KPI-eligible tickers (Financials/NIM, Energy/Operating
+> Cost Ratio, Utilities, and REITs excluded as non-comparable metrics by
+> design), 71.6% within ±4pp, 0 pipeline crashes, 8 tickers with a
+> genuinely unexplained delta.
+
 Validated across 150 tickers, 9 sectors, 0 runtime failures.
 
 | Metric | Result |
@@ -574,9 +615,9 @@ The 40 tickers outside ±4pp fall into four categories — none are pipeline err
 | ROTCE and other financial industry specifics nuance not computable | Financial Industry | Deferred — financials agent swarm planned |
 | Credit ratings stale risk | All tickers | ratings.csv is manually maintained — ratings are not fetched automatically. Update quarterly or after any rating action. |
 | Segement Revenue trigger rate| Most tickers | Segment revenue only trigger by some company (may due to XBLR availability)
-| Gross margin not filed by some sectors | Defense/aerospace (RTX, NOC, GD), telecom (T, VZ, TMUS), diversified media/tech (DIS, ORCL, CDNS, INTU, WDAY), some restaurants (MCD, YUM, DPZ) | Genuine data limitation, not a pipeline bug — these filers report a single "costs and expenses" line with no COGS/gross-profit subtotal in XBRL. Shown as `N/A (not reported separately)` rather than a fabricated figure. |
-| Asset-based freight/rail/airline gross margin imprecise | UPS, CSX, UNP, ODFL, DAL, UAL, AAL, LUV, NSC | "Purchased transportation"/fuel/maintenance cost lines are filed under custom entity-specific XBRL tags not exposed via SEC's companyfacts API — only the total operating-cost figure is derivable, not a true COGS split. Shown as N/A rather than the previous mistagged-labor-cost figure (was inflating gross margin to 70-100%). |
-| Heavy-industrial GrossProfit tag occasionally unresolvable | e.g. CAT, DE | A small number of manufacturers' `CostOfGoodsAndServicesSold`/`GrossProfit` XBRL tags resolve to an implausible sub-component (a few $M against $50B+ of revenue) rather than the consolidated figure. Pipeline detects and suppresses these (shows N/A) rather than the ~100% "gross margin" that resulted previously. |
+| Gross margin not filed by some sectors | Defense/aerospace (RTX, NOC, GD), telecom (T, VZ, TMUS), diversified media/tech (DIS, ORCL, CDNS, INTU, WDAY), some restaurants (MCD, YUM, DPZ) | Genuine data limitation, not a pipeline bug — these filers report a single "costs and expenses" line with no COGS/gross-profit subtotal in XBRL. SEC XBRL shows `N/A (not reported separately)`; the pipeline now falls back to yfinance for these (labelled `(yfinance annual)`/`(yfinance TTM)` inline) rather than leaving a bare N/A — see [Sector Routing](#sector-routing). Remains bare N/A only when yfinance also has nothing. |
+| Asset-based freight/rail/airline gross margin imprecise | UPS, CSX, UNP, ODFL, DAL, UAL, AAL, LUV, NSC | "Purchased transportation"/fuel/maintenance cost lines are filed under custom entity-specific XBRL tags not exposed via SEC's companyfacts API — only the total operating-cost figure is derivable, not a true COGS split. XBRL resolution is suppressed (was previously inflating gross margin to 70-100% via mistagged labor cost); falls back to a labelled yfinance figure when available. |
+| Heavy-industrial GrossProfit tag occasionally unresolvable | e.g. CAT, DE | A small number of manufacturers' `CostOfGoodsAndServicesSold`/`GrossProfit` XBRL tags resolve to an implausible sub-component (a few $M against $50B+ of revenue) rather than the consolidated figure. Pipeline detects and suppresses these (falls back to a labelled yfinance figure, or N/A if yfinance also has nothing) rather than the ~100% "gross margin" that resulted previously. |
 
 > **Note:** Balance sheet history limitation has been resolved — pipeline retrieves up to 5 years of data. Financials sector edge cases are deferred to the next release. Gross margin is now sector-routed (Utilities and REITs are flagged `DEFINITION_MISMATCH` and excluded from consensus comparison rather than computed from a COGS formula that doesn't apply to them; managed-care insurers, freight brokers, and general COGS resolution were corrected — see `scripts/validate_gross_margin.py`).
 
