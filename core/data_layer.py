@@ -210,6 +210,39 @@ class StatementProfile:
             vals.append(val)
         return np.array(vals)
 
+    def _get_preferred_vector(self, standard_tags: list) -> np.ndarray:
+        """
+        Try candidates in order (like _get_vector), but -- unlike
+        _get_vector -- a candidate is only accepted if it actually
+        resolves to at least one non-zero value across the current
+        periods, not merely because a row for it exists. (_resolve_waterfall
+        always creates a row for every standard_concept label whether or
+        not it resolved, NaN-filled if not -- see _get_vector's docstring
+        -- so _get_vector's "first row that exists" check stops at the
+        first candidate regardless of whether it has real values.)
+
+        Falls back to magnitude comparison (_get_max_vector) only when
+        none of the candidates resolves to any real value on its own --
+        i.e. this picks the first candidate that actually has data,
+        never the largest, unless every candidate is empty.
+
+        Use this instead of _get_max_vector when candidates represent
+        different economic concepts that are not strict subsets of one
+        another -- e.g. Net Income variants that in/exclude
+        noncontrolling interests, where "largest wins" can silently swap
+        in a materially different (if numerically larger) figure.
+        _get_max_vector's "largest wins" is only safe when a larger
+        candidate is always the more-consolidated version of the exact
+        same figure (Revenue, Assets, shares, D&A).
+        """
+        for tag in standard_tags:
+            vec = self._get_vector([tag])
+            if any(v is not None and v == v and v != 0 for v in vec):
+                return vec
+        # No candidate resolved to any real value on its own -- fall back
+        # to magnitude comparison among whatever partially resolved.
+        return self._get_max_vector(standard_tags)
+
     def _get_vector_by_raw_concept(self, raw_concepts: list) -> np.ndarray:
         """
         Search df['concept'] for company-specific extension tags that edgartools
@@ -557,9 +590,30 @@ class IncomeStatementProfile(StatementProfile):
     def net_income(self) -> np.ndarray:
         # NetIncome (8,872) -> NetIncomeToCommonShareholders (2,013)
         # -> IncomeLossContinuingOperations (952) -> ProfitLoss (5,630, IFRS)
-        return self._get_vector([
-            'NetIncome', 'NetIncomeToCommonShareholders',
-            'IncomeLossContinuingOperations', 'ProfitLoss',
+        #
+        # _get_preferred_vector, not _get_vector or _get_max_vector:
+        # _get_vector's "first row that exists" check always stopped at
+        # 'NetIncome' regardless of whether it had real values (see
+        # _get_vector's docstring), making the other three labels
+        # unreachable dead code. _get_max_vector fixed that but introduced
+        # a real regression: these four candidates are not strict subsets
+        # of one another the way Revenue/Assets/shares are -- 'ProfitLoss'
+        # can represent income *including* noncontrolling interests while
+        # 'NetIncome' excludes it, so "largest wins" picked the NCI-
+        # inclusive figure whenever it was tagged and larger (confirmed on
+        # WMT: ProfitLoss $22.270B vs. NetIncome $21.893B, exactly the
+        # $377M MinorityInterestIncomeExpense difference) -- silently
+        # overstating EPS/net margin/ROE/ROA by the NCI share for any
+        # company with material noncontrolling interests.
+        # _get_preferred_vector fixes the dead-fallback bug (tries all
+        # four) without reintroducing the NCI bug: it prefers the first
+        # candidate that actually resolves to real values, only falling
+        # back to magnitude comparison when every candidate is empty.
+        return self._get_preferred_vector([
+            'NetIncome',                     # Parent-only (preferred)
+            'NetIncomeToCommonShareholders', # After preferred dividends
+            'IncomeLossContinuingOperations',# Excl. discontinued ops
+            'ProfitLoss',                    # NCI-inclusive (last resort)
         ])
 
     @property
@@ -1154,11 +1208,30 @@ class CashFlowProfile(StatementProfile):
         # PropertyPlantAndEquipmentAdditions — alternative filed by some E&P companies
         #   where CapitalExpenses resolves to a broader investing-activity subtotal
         #   rather than the pure property/plant additions line.
+        #
+        # _get_preferred_vector, not _get_vector: same dead-fallback issue
+        # as net_income above -- 'CapitalExpenses' always has a row once
+        # the waterfall runs (NaN if unresolved), so _get_vector never
+        # actually reached 'PropertyPlantAndEquipmentAdditions'. Uses
+        # _get_preferred_vector (prefer first that resolves, not largest)
+        # for consistency with net_income and because capex candidates
+        # can differ in what they capture (a broader investing-activity
+        # subtotal vs. the pure PP&E line) -- not a case where "largest is
+        # always more consolidated" is guaranteed the way it is for
+        # Revenue/Assets.
+        #
+        # Note: 'PaymentsToAcquirePropertyPlantAndEquipment' and
+        # 'PaymentsForCapitalImprovements' are raw XBRL concepts already
+        # tried *within* 'PropertyPlantAndEquipmentAdditions' label's own
+        # resolution (see data/facts_processor.py _CF_WATERFALL), not
+        # separate standard_concept labels this can match on --
+        # 'CapitalExpendituresIncurringObligation' doesn't exist anywhere
+        # in the waterfall either. Kept to just the two real labels.
         # NOTE: if FCF is still understated after this change, run diagnose.py on
         #   the ticker's cash flow statement to identify the exact XBRL concept used
         #   and add it here. Root cause: E&P filers sometimes embed segment-level
         #   capex lines that sum to more than the consolidated net capex definition.
-        return self._get_vector([
+        return self._get_preferred_vector([
             'CapitalExpenses',
             'PropertyPlantAndEquipmentAdditions',
         ])

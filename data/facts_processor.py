@@ -2295,6 +2295,11 @@ _CF_WATERFALL = [
         "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
         "PaymentsToAcquireOtherProductiveAssets",
         "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+        # E&P-specific: edgartools' industry_extensions/energy.json tags this
+        # "Capital expenditures" (occurrence_rate 0.24) -- not in the general
+        # gaap_mappings.json, only the energy industry extension.
+        "PaymentsToExploreAndDevelopOilAndGasProperties",
+        "PaymentsForProceedsFromDevelopmentOfRealEstate",
     ], "USD"),
     ("CapitalLeasePaymentsCF", [
         "RepaymentsOfLongTermCapitalLeaseObligations",
@@ -2511,7 +2516,10 @@ _CF_WATERFALL = [
     ], "USD"),
     ("PropertyPlantAndEquipmentAdditions", [
         "PaymentsToAcquirePropertyPlantAndEquipment",
-        "PaymentsForCapitalImprovements",
+        # PaymentsForCapitalImprovements removed: edgartools' own
+        # gaap_mappings.json maps it to standard_tags=['NetCashFromInvestingActivities']
+        # at confidence 0.311, not to CapitalExpenses/capex -- a low-confidence,
+        # wrong-bucket mapping, not a genuine capex concept.
     ], "USD"),
     ("InterestPaidCF", [
         "InterestPaidNet",
@@ -2604,6 +2612,28 @@ def _discover_periods(us_gaap: dict, max_years: int) -> list[str]:
     return periods
 
 
+def _has_valid_values(vals: dict, periods: list) -> bool:
+    """
+    True if `vals` (a {period_end_date: value} dict, e.g. from
+    _extract_annual) has at least one entry whose period-end date is
+    actually within the target `periods` window.
+
+    _extract_annual returns every annual value a concept has ever
+    reported for a filer, with no awareness of which periods the caller
+    actually needs -- a concept the filer abandoned years ago (e.g.
+    AMZN/NVDA's PaymentsToAcquirePropertyPlantAndEquipment, last used
+    ~2012-2016) still returns a non-empty dict, just for dates entirely
+    outside the current 5-year window. Used by _resolve_waterfall so its
+    "first candidate that resolves" loop commits to a concept only when
+    it actually covers a period being asked for, rather than merely
+    existing somewhere in the filer's history -- otherwise the next
+    (correct, current) candidate in the list never gets tried.
+    """
+    if not vals:
+        return False
+    return any(p in vals for p in periods)
+
+
 # -----------------------------------------------------------------------------
 # Waterfall resolution -> DataFrame
 # -----------------------------------------------------------------------------
@@ -2688,15 +2718,40 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
 
         resolved_concept = None
         period_vals = {}
+        # First non-empty candidate seen, regardless of period coverage --
+        # last-resort fallback only if NO candidate covers the target
+        # periods at all (see below), so a filer whose period-discovery
+        # anchors landed slightly differently than this specific line
+        # item's own history still gets *something* rather than nothing.
+        fallback_concept = None
+        fallback_vals = {}
 
         for concept in augmented:
             use_max = concept in _MAX_MAGNITUDE_CONCEPTS
             vals = _extract_annual(us_gaap, concept, unit, is_instant=is_instant,
                                    use_max_magnitude=use_max)
-            if vals:
+            if not vals:
+                continue
+            if fallback_concept is None:
+                fallback_concept, fallback_vals = concept, vals
+            # Only commit to this candidate if it actually has a value for
+            # at least one of the periods being asked for -- not merely
+            # non-empty somewhere in the filer's history. Without this, a
+            # concept a filer stopped using years ago (first candidate,
+            # non-empty) permanently blocks a later candidate that's
+            # actually current (e.g. AMZN/NVDA capex: the legacy
+            # PaymentsToAcquirePropertyPlantAndEquipment tag stops
+            # resolving around 2012-2016, so it used to win here and
+            # PaymentsToAcquireProductiveAssets -- what they file now --
+            # was never tried).
+            if _has_valid_values(vals, periods):
                 resolved_concept = concept
                 period_vals = vals
                 break
+
+        if resolved_concept is None and fallback_concept is not None:
+            resolved_concept = fallback_concept
+            period_vals = fallback_vals
 
         row = {
             "standard_concept": label,
