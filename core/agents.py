@@ -1849,6 +1849,8 @@ class ValuationAgent:
         ptbv     = {}
         ev_sales = {}
         ev_ebitda = {}
+        ev_sales_current  = {}
+        ev_ebitda_current = {}
 
         market_cap = profile.market_cap
 
@@ -1931,40 +1933,70 @@ class ValuationAgent:
             else:
                 ptbv[p] = "N/A"
 
+            cash_i = bal.cash[i]
+            # EBITDA for this period -- used by both the current-basis (i==0
+            # only, as before) and historical FY-end-basis EV/EBITDA below.
+            da     = profile.cash_flow.depreciation_amortization[i]
+            ebitda = (oi + abs(da)) if (oi and da) else (oi if oi else None)
+
             # ── EV/Sales ─────────────────────────────────────────────────
             # EV/Sales is suppressed for financials: revenue includes gross
             # interest income on a multi-trillion asset base, making the ratio
             # economically meaningless and not comparable to non-bank peers.
+            #
+            # Two bases are computed: "current" (today's market cap -- the
+            # original approximation, market cap + debt, no cash netting,
+            # unchanged) and a per-FY historical figure using FY-end price x
+            # shares for market cap, netting FY-end cash
+            # (fy_ev = fy_market_cap + debt - cash).
             if sg == "financials":
-                ev_sales[p] = "N/A (financials)"
-            elif i == 0 and market_cap:
-                rev_denom = rev
-                if rev_denom:
-                    ev_approx = market_cap + debt if debt else market_cap
-                    ev_sales[p] = _fmt_x(_safe_div(ev_approx, rev_denom))
+                ev_sales[p]         = "N/A (financials)"
+                ev_sales_current[p] = "N/A (financials)" if i == 0 else "—"
+            else:
+                if i == 0:
+                    if market_cap and rev:
+                        ev_approx = market_cap + debt if debt else market_cap
+                        ev_sales_current[p] = _fmt_x(_safe_div(ev_approx, rev))
+                    else:
+                        ev_sales_current[p] = "N/A"
+                else:
+                    ev_sales_current[p] = "—"
+
+                if hist_p and shares and rev:
+                    fy_market_cap = hist_p * shares
+                    fy_ev = fy_market_cap + (debt or 0) - (cash_i or 0)
+                    ev_sales[p] = _fmt_x(_safe_div(fy_ev, rev))
                 else:
                     ev_sales[p] = "N/A"
-            else:
-                ev_sales[p] = "N/A"
 
             # ── EV/EBITDA (general + energy; suppress for financials) ────
             if sg == "financials":
-                ev_ebitda[p] = "N/A (financials)"
-            elif i == 0 and market_cap:
-                da = profile.cash_flow.depreciation_amortization[i]
-                ebitda = (oi + abs(da)) if (oi and da) else (oi if oi else None)
-                ev_approx = market_cap + debt if debt else market_cap
-                if ebitda and ebitda > 0:
-                    ev_ebitda[p] = _fmt_x(_safe_div(ev_approx, ebitda))
+                ev_ebitda[p]         = "N/A (financials)"
+                ev_ebitda_current[p] = "N/A (financials)" if i == 0 else "—"
+            else:
+                if i == 0:
+                    if market_cap and ebitda and ebitda > 0:
+                        ev_approx = market_cap + debt if debt else market_cap
+                        ev_ebitda_current[p] = _fmt_x(_safe_div(ev_approx, ebitda))
+                    else:
+                        ev_ebitda_current[p] = "N/A"
+                else:
+                    ev_ebitda_current[p] = "—"
+
+                if hist_p and shares and ebitda and ebitda > 0:
+                    fy_market_cap = hist_p * shares
+                    fy_ev = fy_market_cap + (debt or 0) - (cash_i or 0)
+                    ev_ebitda[p] = _fmt_x(_safe_div(fy_ev, ebitda))
                 else:
                     ev_ebitda[p] = "N/A"
-            else:
-                ev_ebitda[p] = "N/A"
 
         # ── Premium valuation flag (most recent period only) ────────────────
+        # Uses ev_ebitda_current (today's price basis), not ev_ebitda (now a
+        # per-FY historical figure -- see EV/EBITDA block above) -- this flag
+        # is about current valuation risk, matching pe_curr's basis below.
         mr_p = periods[0] if periods else None
         if mr_p:
-            ev_eb_str = ev_ebitda.get(mr_p, "")
+            ev_eb_str = ev_ebitda_current.get(mr_p, "")
             pe_cr_str = pe_curr.get(mr_p, "")
             ev_eb_f   = _parse_x(ev_eb_str) if "x" in str(ev_eb_str) else None
             pe_cr_f   = _parse_x(pe_cr_str) if "x" in str(pe_cr_str) else None
@@ -1999,8 +2031,10 @@ class ValuationAgent:
             "pe_current":     pe_curr,
             "pb_current":     pb_curr,
             "ptbv":           ptbv,
-            "ev_sales":       ev_sales,
-            "ev_ebitda":      ev_ebitda,
+            "ev_sales":         ev_sales,
+            "ev_ebitda":        ev_ebitda,
+            "ev_sales_current":  ev_sales_current,
+            "ev_ebitda_current": ev_ebitda_current,
             "current_price":  current_price,
             "market_cap":     market_cap,
             "sector_group":   sg,

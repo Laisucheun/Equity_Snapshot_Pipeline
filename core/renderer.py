@@ -1463,34 +1463,32 @@ class EquityBriefRenderer:
         # ── Section 3: Valuation ──
         story += _section_header("3 · Valuation", styles, anchor="s3")
 
-        # Two price contexts: historical FY-end and current
-        # Show as sub-groups in the table
+        # One row per metric: "Current" (today's price) column first, then
+        # one FY-end-price column per historical period.
         curr_p = periods[0] if periods else "—"
-        val_header = ["Metric"] + [_short_period(p) for p in periods]
+        val_header = ["Metric", "Current"] + [_short_period(p) for p in periods]
 
         # Build valuation rows dynamically
         val_rows = []
         val_rows.append(
-            ["P/E (FY-end price)"] + [valuation["pe_historical"].get(p, "N/A") for p in periods]
+            ["P/E", valuation["pe_current"].get(curr_p, "N/A")]
+            + [valuation["pe_historical"].get(p, "N/A") for p in periods]
         )
         val_rows.append(
-            ["P/E (current price)"] + [valuation["pe_current"].get(p, "—") for p in periods]
+            ["P/B", valuation["pb_current"].get(curr_p, "N/A")]
+            + [valuation["pb_historical"].get(p, "N/A") for p in periods]
         )
         val_rows.append(
-            ["P/B (FY-end price)"] + [valuation["pb_historical"].get(p, "N/A") for p in periods]
-        )
-        val_rows.append(
-            ["P/B (current price)"] + [valuation["pb_current"].get(p, "—") for p in periods]
-        )
-        val_rows.append(
-            ["P/TBV"] + [valuation["ptbv"].get(p, "N/A") for p in periods]
+            ["P/TBV", "N/A"] + [valuation["ptbv"].get(p, "N/A") for p in periods]
         )
         if sg != "financials":
             val_rows.append(
-                ["EV/EBITDA"] + [valuation["ev_ebitda"].get(p, "N/A") for p in periods]
+                ["EV/EBITDA", valuation.get("ev_ebitda_current", {}).get(curr_p, "N/A")]
+                + [valuation["ev_ebitda"].get(p, "N/A") for p in periods]
             )
         val_rows.append(
-            ["EV/Sales (approx.)"] + [valuation["ev_sales"].get(p, "N/A") for p in periods]
+            ["EV/Sales", valuation.get("ev_sales_current", {}).get(curr_p, "N/A")]
+            + [valuation["ev_sales"].get(p, "N/A") for p in periods]
         )
         story.append(_ratio_table(val_header, _drop_all_na(val_rows)))
         story.append(Spacer(1, 2))
@@ -1498,6 +1496,10 @@ class EquityBriefRenderer:
         cp_str = f"${valuation.get('current_price', 0):.2f}" if valuation.get("current_price") else "N/A"
         story.append(Paragraph(
             f"Current price: {cp_str}   Market cap: {_fmt_market_cap(valuation.get('market_cap', 0))}",
+            styles["meta"]
+        ))
+        story.append(Paragraph(
+            "EV computed at FY-end price × shares + debt - cash. Current EV uses today's price.",
             styles["meta"]
         ))
 
