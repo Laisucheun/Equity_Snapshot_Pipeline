@@ -88,6 +88,11 @@ _CIK_OVERRIDES = {
     "IPG":   "51644",      # Interpublic Group (acquired by Omnicom Nov 2025)
     "JNPR":  "1043604",    # Juniper Networks (acquired by HPE Jan 2026)
     "PKI":   "31791",      # PerkinElmer Inc
+    "BCR":   "9892",       # C.R. Bard Inc (acquired by BD 2017 -- last 10-K FY2016, stale)
+    "CTRA":  "858470",     # Coterra Energy Inc (formerly Cabot Oil & Gas CIK)
+    "FLT":   "1175454",    # Corpay Inc, formerly FleetCor Technologies -- ticker now CPAY
+    "K":     "55067",      # Kellanova, formerly Kellogg Co (acquired by Mars Oct 2024)
+    "WRK":   "1732845",    # WestRock Co (merged into Smurfit WestRock Jul 2024 -- ticker now SW)
 
     # Standard known overrides
     "GOOGL": "1652044",    # Alphabet Inc Class A
@@ -548,6 +553,322 @@ def _build_sector_overrides(gaap_mappings: dict) -> dict[str, dict[str, list[str
 _GAAP_MAPPINGS:     dict             = _load_gaap_mappings()
 _COMPANY_MAPPINGS:  dict[str, dict]  = _load_company_mappings()
 _SECTOR_OVERRIDES:  dict[str, dict]  = _build_sector_overrides(_GAAP_MAPPINGS)
+
+
+# -----------------------------------------------------------------------------
+# Fine-grained SIC-based industry routing (hybrid approach)
+# -----------------------------------------------------------------------------
+
+def _load_industry_mappings() -> dict:
+    """Load SIC range → fine-grained industry from edgartools."""
+    import importlib.util, json, pathlib
+    spec = importlib.util.find_spec("edgar")
+    if not spec:
+        return {}
+    edgar_dir = pathlib.Path(spec.origin).parent
+    path = edgar_dir / "entity" / "data" / "industry_mappings.json"
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+_INDUSTRY_MAPPINGS: dict = _load_industry_mappings()
+
+
+def _sic_to_industry(sic: int | None) -> str | None:
+    """
+    Map SIC code to fine-grained industry name using edgartools ranges.
+
+    Some SIC codes fall inside more than one industry's ranges (edgartools'
+    own industry_mappings.json has overlapping ranges -- e.g. investment_companies
+    covers 6720-6799, which also contains realestate's more specific 6798-6798
+    for REITs). When multiple industries match, the narrowest (most specific)
+    matching range wins, so a REIT like SPG (SIC 6798) resolves to "realestate"
+    rather than the broader "investment_companies" bucket.
+    """
+    if not sic or not _INDUSTRY_MAPPINGS:
+        return None
+    best_industry = None
+    best_width = None
+    for industry, config in _INDUSTRY_MAPPINGS.get("industries", {}).items():
+        for lo, hi in config.get("sic_ranges", []):
+            if lo <= sic <= hi:
+                width = hi - lo
+                if best_width is None or width < best_width:
+                    best_width = width
+                    best_industry = industry
+    return best_industry
+
+
+# Fine-grained industry → {standard_tag: [raw_concepts_priority]}.
+# Checked ahead of the broad _SECTOR_OVERRIDES (which only carries generic
+# ASC-606 tags reordered by confidence, not genuinely industry-specific
+# concepts) but after per-company patches. See PART 2/3 of the diagnostic
+# report this was designed from -- these tags are NOT present anywhere in
+# gaap_mappings.json's industry_overrides or edgartools' industry_extensions
+# trees, both of which lack a dedicated Revenue node for every one of these
+# industries due to tagging fragmentation.
+_INDUSTRY_CONCEPT_OVERRIDES = {
+
+    "energy": {
+        "Revenue": [
+            "OilAndGasRevenue",
+            "CrudeOilAndNaturalGasRevenue",
+            "OilGasAndNGLsRevenue",
+            "OilAndGasSalesRevenue",
+            "NaturalGasRevenue",
+            "OilAndCondensateRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+            "CostOfGoodsSold",
+            "ExplorationExpense",
+            "DepletionOfOilAndGasProperties",
+        ],
+    },
+
+    "utilities": {
+        "Revenue": [
+            "ElectricUtilityRevenue",
+            "RegulatedUtilityRevenue",
+            "GasUtilitiesRevenue",
+            "WaterUtilitiesRevenue",
+            "RegulatedAndUnregulatedOperatingRevenue",
+            "PublicUtilitiesRevenueRequirementNet",
+            "UtilitiesRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "FuelAndPurchasedPowerCost",
+            "UtilitiesOperatingExpenseFuelUsed",
+            "ElectricityPurchased",
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "banking": {
+        "Revenue": [
+            "InterestIncomeExpenseNet",
+            "NetInterestIncome",
+            "RevenuesNetOfInterestExpense",
+            "InterestAndDividendIncomeOperating",
+            "InterestAndFeeIncomeOtherLoans",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+        ],
+        "CostOfRevenue": [
+            "InterestExpense",
+            "ProvisionForLoanLeaseAndOtherLosses",
+            "ProvisionForLoanAndLeaseLosses",
+        ],
+    },
+
+    "insurance": {
+        "Revenue": [
+            "PremiumsEarnedNet",
+            "NetPremiumsEarned",
+            "PremiumsWrittenNet",
+            "InsurancePremiumsRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+        ],
+        "CostOfRevenue": [
+            "PolicyholderBenefitsAndClaimsIncurredNet",
+            "BenefitsLossesAndExpenses",
+        ],
+    },
+
+    "realestate": {
+        "Revenue": [
+            "OperatingLeaseLeaseIncome",
+            "OperatingLeasesIncomeStatementLeaseRevenue",
+            "RealEstateRevenueNet",
+            "RentalProperties",
+            "TenantReimbursements",
+            "RentalIncome",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "RealEstateTaxExpense",
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "healthcare": {
+        "Revenue": [
+            "HealthCareOrganizationPatientServiceRevenue",
+            "PharmaceuticalProductRevenue",
+            "MedicalDeviceRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromCollaborativeArrangementExcludingRevenueFromContractWithCustomer",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfGoodsAndServicesSold",
+            "CostOfGoodsSoldPharmaceutical",
+            "CostOfRevenue",
+        ],
+    },
+
+    "mining": {
+        "Revenue": [
+            "MetalsAndMiningRevenue",
+            "MiningRevenue",
+            "CoalRevenue",
+            "MineralRoyaltiesRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "MiningCosts",
+            "CostOfCoalSold",
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "transportation": {
+        "Revenue": [
+            "PassengerRevenue",
+            "PassengerAirlineRevenue",
+            "CargoRevenue",
+            "AirlineRevenue",
+            "TransportationRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "AircraftFuelCosts",
+            "LaborAndRelatedExpense",
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "hospitality": {
+        "Revenue": [
+            "HotelRevenue",
+            "OccupancyRevenue",
+            "FoodAndBeverageRevenue",
+            "GamingRevenue",
+            "CasinoRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "telecom": {
+        "Revenue": [
+            "ServiceRevenue",
+            "WirelessRevenue",
+            "WirelineRevenue",
+            "EquipmentRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+            "CostOfServices",
+        ],
+    },
+
+    "tech": {
+        "Revenue": [
+            "SubscriptionRevenue",
+            "SoftwareLicenseRevenue",
+            "LicenseRevenue",
+            "ProfessionalServicesRevenue",
+            "MaintenanceRevenue",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+            "CostOfServices",
+        ],
+    },
+
+    "semiconductors": {
+        "Revenue": [
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            "Revenues",
+            "Revenue",
+        ],
+        "CostOfRevenue": [
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+
+    "retail": {
+        "Revenue": [
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "Revenue",
+            "SalesRevenueNet",
+            "SalesRevenueGoodsNet",
+        ],
+        "CostOfRevenue": [
+            "CostOfGoodsSold",
+            "CostOfRevenue",
+            "CostOfGoodsAndServicesSold",
+        ],
+    },
+}
+
+# Add all new revenue tags to _MAX_MAGNITUDE_CONCEPTS -- same rationale as the
+# existing set: a segment/product-line subtotal can never exceed the
+# consolidated total it rolls up into, so duplicate same-period-end entries
+# under these concepts are disambiguated by magnitude, not filing recency.
+_MAX_MAGNITUDE_CONCEPTS.update({
+    "OilAndGasRevenue", "CrudeOilAndNaturalGasRevenue",
+    "OilGasAndNGLsRevenue", "OilAndGasSalesRevenue",
+    "NaturalGasRevenue", "OilAndCondensateRevenue",
+    "ElectricUtilityRevenue", "RegulatedUtilityRevenue",
+    "GasUtilitiesRevenue", "WaterUtilitiesRevenue",
+    "RegulatedAndUnregulatedOperatingRevenue",
+    "PublicUtilitiesRevenueRequirementNet", "UtilitiesRevenue",
+    "InterestIncomeExpenseNet", "NetInterestIncome",
+    "RevenuesNetOfInterestExpense",
+    "PremiumsEarnedNet", "NetPremiumsEarned", "PremiumsWrittenNet",
+    "OperatingLeaseLeaseIncome", "RealEstateRevenueNet",
+    "RentalProperties", "TenantReimbursements", "RentalIncome",
+    "HealthCareOrganizationPatientServiceRevenue",
+    "PharmaceuticalProductRevenue", "MedicalDeviceRevenue",
+    "MetalsAndMiningRevenue", "MiningRevenue", "CoalRevenue",
+    "PassengerRevenue", "PassengerAirlineRevenue",
+    "CargoRevenue", "AirlineRevenue", "TransportationRevenue",
+    "HotelRevenue", "OccupancyRevenue", "GamingRevenue",
+    "ServiceRevenue", "WirelessRevenue", "WirelineRevenue",
+    "SubscriptionRevenue", "SoftwareLicenseRevenue",
+    "LicenseRevenue", "SalesRevenueNet", "SalesRevenueGoodsNet",
+})
+
 
 # -----------------------------------------------------------------------------
 # Waterfall definitions -- auto-generated from edgartools gaap_mappings.json
@@ -2290,7 +2611,8 @@ def _discover_periods(us_gaap: dict, max_years: int) -> list[str]:
 def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
                        is_instant: bool = False,
                        ticker: str = "",
-                       sector: str = "") -> tuple[pd.DataFrame, dict]:
+                       sector: str = "",
+                       fine_industry: str = "") -> tuple[pd.DataFrame, dict]:
     """
     Resolve a waterfall into a DataFrame compatible with StatementProfile.
 
@@ -2299,6 +2621,19 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
               (from edgartools company_mappings/*.json) to each waterfall entry
     - sector: if provided, splices sector-specific concept priorities
               (from gaap_mappings industry_overrides) after the base concepts
+
+    Phase 2 addition (hybrid SIC-based fine-grained industry routing):
+    - fine_industry: if provided (SIC-derived, see _sic_to_industry), prepends
+              fine-grained industry-specific concepts (_INDUSTRY_CONCEPT_OVERRIDES)
+              ahead of the broad sector override -- catches genuinely
+              industry-specific tags (e.g. OilAndGasRevenue for E&P) that
+              gaap_mappings' industry_overrides don't carry.
+
+    Priority order per waterfall entry:
+      1. Company-specific patch (highest)
+      2. Fine-grained industry override (NEW)
+      3. Broad sector override (existing _SECTOR_OVERRIDES)
+      4. Base waterfall concepts (universal, sorted by company_count)
 
     Returns
     -------
@@ -2311,33 +2646,45 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
     # Per-ticker concept patches (e.g. tsla:, msft: extension tags)
     company_patch: dict[str, list[str]] = _COMPANY_MAPPINGS.get(ticker.upper(), {})
 
+    # Fine-grained SIC-derived industry override (NEW)
+    industry_override: dict[str, list[str]] = (
+        _INDUSTRY_CONCEPT_OVERRIDES.get(fine_industry, {}) if fine_industry else {}
+    )
+
     # Per-sector concept priority overrides
     sector_override: dict[str, list[str]] = _SECTOR_OVERRIDES.get(sector, {})
 
     for label, concepts, unit in waterfall:
         # Build augmented concept list:
         #   1. Company-specific concepts (extension tags, highest priority)
-        #   2. Sector-specific PREPEND concepts (override base for sector)
-        #   3. Base waterfall concepts (universal, sorted by company_count)
-        #   4. Sector-specific APPEND concepts (fallback additions)
+        #   2. Fine-grained industry concepts (NEW -- SIC-derived)
+        #   3. Sector-specific PREPEND concepts (override base for sector)
+        #   4. Base waterfall concepts (universal, sorted by company_count)
+        #   5. Sector-specific APPEND concepts (fallback additions)
         #
         # Sectors in _SECTOR_PREPEND_OVERRIDE get their concepts tried BEFORE
         # the base waterfall -- critical for REITs where the universal concept
         # (RevenueFromContractWithCustomer) exists but picks a sub-component.
         # All other sectors get their overrides appended as fallbacks.
-        company_concepts = company_patch.get(label, [])
-        sector_ov        = sector_override.get(label, [])
+        company_concepts  = company_patch.get(label, [])
+        industry_concepts = [c for c in industry_override.get(label, [])
+                             if c not in company_concepts]
+        sector_ov         = sector_override.get(label, [])
 
         if sector in _SECTOR_PREPEND_OVERRIDE and sector_ov:
             # Prepend sector concepts before base (REITs, Insurance, Banks for Revenue)
-            prepend = [c for c in sector_ov if c not in company_concepts]
+            prepend = [c for c in sector_ov
+                      if c not in company_concepts and c not in industry_concepts]
             append  = []
-            base    = [c for c in concepts if c not in company_concepts and c not in prepend]
-            augmented = company_concepts + prepend + base + append
+            base    = [c for c in concepts
+                      if c not in company_concepts and c not in industry_concepts
+                      and c not in prepend]
+            augmented = company_concepts + industry_concepts + prepend + base + append
         else:
             # Default: sector concepts as fallback after base
-            append  = [c for c in sector_ov if c not in concepts and c not in company_concepts]
-            augmented = company_concepts + concepts + append
+            append  = [c for c in sector_ov if c not in concepts
+                      and c not in company_concepts and c not in industry_concepts]
+            augmented = company_concepts + industry_concepts + concepts + append
 
         resolved_concept = None
         period_vals = {}
@@ -2530,6 +2877,70 @@ def _reconcile(is_df: pd.DataFrame, bs_df: pd.DataFrame,
                                                    for p in periods})
             flags.append("Equity: using inclusive-of-minority-interest figure")
 
+        # -- 2c. COGS plausibility guard: some filers tag
+        #    CostOfGoodsAndServicesSold to a minor segment/component
+        #    subtotal rather than consolidated COGS (e.g. CAT, DE resolve
+        #    to a ~$50-80M sub-line against $50B+ of total operating
+        #    costs), and labor-intensive multi-line-expense filers
+        #    (airlines, railroads, freight brokers -- AAL, LUV, NSC, UPS,
+        #    CSX, UNP, CHRW, EXPD, ...) have no CostOfGoodsAndServicesSold
+        #    tag at all, so the waterfall falls back to LaborAndRelatedExpense
+        #    -- one line out of a multi-line operating expense schedule, a
+        #    small fraction of true cost of service. Both patterns produce
+        #    a COGS figure that is an implausibly small sliver of total
+        #    operating costs, which (via the Revenue-COGS override below)
+        #    inflates gross margin toward ~100%. When CostsSubtotal (total
+        #    operating costs) is available and COGS is under 15% of it,
+        #    treat COGS as unresolved so the override is skipped -- the
+        #    general branch in core.agents then shows gross margin as
+        #    "N/A (not reported separately)" instead of a nonsense
+        #    near-100% figure. (Sector-specific branches such as
+        #    freight_broker read CostsSubtotal directly via
+        #    inc.total_operating_costs rather than depending on this
+        #    row, so they still produce a numeric estimate.)
+        # Managed-care insurers (see core.agents._MANAGED_CARE_TICKERS) are
+        # exempt: their CostOfGoodsAndServicesSold tag legitimately resolves
+        # to a small product/pharmacy-cost figure that sits ALONGSIDE (not
+        # instead of) medical claims costs -- core.agents combines the two
+        # directly. Nulling it here would silently drop the product-cost
+        # component from that combination.
+        _managed_care_exempt = {"CNC", "UNH", "ELV", "CI", "CVS", "MOH", "HUM"}
+        cogs_check   = _cell(is_df, "CostOfGoodsAndServicesSold", p0)
+        costs_subtot = _cell(is_df, "CostsSubtotal", p0)
+        _cogs_mask = is_df["standard_concept"] == "CostOfGoodsAndServicesSold"
+        _cogs_raw_concept = (is_df.loc[_cogs_mask].iloc[0].get("concept", "")
+                             if _cogs_mask.any() else "")
+        # LaborAndRelatedExpense is a waterfall fallback candidate for
+        # CostOfGoodsAndServicesSold, but for multi-line-operating-expense
+        # filers (airlines, railroads, freight -- AAL, LUV, NSC, UPS, CSX,
+        # UNP, CHRW, EXPD, ...) it resolves to just the payroll line, one
+        # component out of many (fuel, purchased transportation,
+        # maintenance, depreciation, ...), not a cost-of-revenue figure --
+        # regardless of its magnitude relative to total costs (unlike the
+        # CAT/DE segment-subtotal pattern below, labor cost is often itself
+        # a large fraction of total costs, so a magnitude threshold alone
+        # doesn't catch it).
+        _cogs_bad_concept = _cogs_raw_concept == "LaborAndRelatedExpense"
+        _cogs_bad_magnitude = bool(
+            cogs_check and costs_subtot and costs_subtot > 0
+            and cogs_check < costs_subtot * 0.15
+        )
+        if ticker.upper() not in _managed_care_exempt and (_cogs_bad_concept or _cogs_bad_magnitude):
+            reason = ("tagged via LaborAndRelatedExpense (payroll only, not cost of revenue)"
+                      if _cogs_bad_concept else
+                      f"implausibly small (${cogs_check/1e9:.2f}B) vs total operating "
+                      f"costs (${costs_subtot/1e9:.2f}B) -- likely a segment/component subtotal")
+            flags.append(
+                f"CostOfGoodsAndServicesSold {reason}, not consolidated COGS. "
+                f"Suppressing so gross margin falls back to N/A rather than a "
+                f"misleading derived figure."
+            )
+            if _cogs_mask.any():
+                _cogs_idx = is_df.index[_cogs_mask][0]
+                for p in periods:
+                    if p in is_df.columns:
+                        is_df.at[_cogs_idx, p] = np.nan
+
         # -- 3. Gross profit: prefer Revenue - COGS over the XBRL GrossProfit
         #    tag whenever both are resolved. This also guards against
         #    GrossProfit resolving to a segment subtotal (e.g. DIS) that
@@ -2640,6 +3051,18 @@ class FactsDataProcessor:
         self.resolution_log: dict = {}
         self.data_flags:     list[str] = []
         self.degraded_reason: str | None = None   # set when standard ingestion failed
+        self._sic:            int | None = None
+        self._fine_industry:  str | None = None
+
+    def _get_sic(self, ticker: str, cik: str) -> int | None:
+        """Fetch the filer's SIC code via edgartools, for fine-grained industry routing."""
+        try:
+            from edgar import Company
+            company = Company(ticker)
+            sic = company.sic
+            return int(sic) if sic else None
+        except Exception:
+            return None
 
     def load_data(self, max_years: int = 10) -> bool:
         """
@@ -2660,6 +3083,11 @@ class FactsDataProcessor:
         if not cik:
             print(f"[{self.ticker}] CIK not found.")
             return False
+
+        # -- Fine-grained SIC-based industry routing ----------------------
+        self._sic = self._get_sic(self.ticker, cik)
+        self._fine_industry = _sic_to_industry(self._sic)
+        print(f"[{self.ticker}] SIC={self._sic} → industry={self._fine_industry}")
 
         # -- Fetch company facts blob -------------------------------------
         facts = _get_facts(cik)
@@ -2697,13 +3125,16 @@ class FactsDataProcessor:
         # Pass ticker + sector so company patches and sector overrides apply
         is_df, is_log = _resolve_waterfall(us_gaap, _IS_WATERFALL, periods,
                                            is_instant=False,
-                                           ticker=self.ticker, sector=self.sector)
+                                           ticker=self.ticker, sector=self.sector,
+                                           fine_industry=self._fine_industry or "")
         bs_df, bs_log = _resolve_waterfall(us_gaap, _BS_WATERFALL, periods,
                                            is_instant=True,
-                                           ticker=self.ticker, sector=self.sector)
+                                           ticker=self.ticker, sector=self.sector,
+                                           fine_industry=self._fine_industry or "")
         cf_df, cf_log = _resolve_waterfall(us_gaap, _CF_WATERFALL, periods,
                                            is_instant=False,
-                                           ticker=self.ticker, sector=self.sector)
+                                           ticker=self.ticker, sector=self.sector,
+                                           fine_industry=self._fine_industry or "")
 
         self.resolution_log = {
             "income_statement": is_log,

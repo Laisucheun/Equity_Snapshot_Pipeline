@@ -573,14 +573,19 @@ The 40 tickers outside ±4pp fall into four categories — none are pipeline err
 |---|---|---|
 | ROTCE and other financial industry specifics nuance not computable | Financial Industry | Deferred — financials agent swarm planned |
 | Credit ratings stale risk | All tickers | ratings.csv is manually maintained — ratings are not fetched automatically. Update quarterly or after any rating action. |
+| Segement Revenue trigger rate| Most tickers | Segment revenue only trigger by some company (may due to XBLR availability)
+| Gross margin not filed by some sectors | Defense/aerospace (RTX, NOC, GD), telecom (T, VZ, TMUS), diversified media/tech (DIS, ORCL, CDNS, INTU, WDAY), some restaurants (MCD, YUM, DPZ) | Genuine data limitation, not a pipeline bug — these filers report a single "costs and expenses" line with no COGS/gross-profit subtotal in XBRL. Shown as `N/A (not reported separately)` rather than a fabricated figure. |
+| Asset-based freight/rail/airline gross margin imprecise | UPS, CSX, UNP, ODFL, DAL, UAL, AAL, LUV, NSC | "Purchased transportation"/fuel/maintenance cost lines are filed under custom entity-specific XBRL tags not exposed via SEC's companyfacts API — only the total operating-cost figure is derivable, not a true COGS split. Shown as N/A rather than the previous mistagged-labor-cost figure (was inflating gross margin to 70-100%). |
+| Heavy-industrial GrossProfit tag occasionally unresolvable | e.g. CAT, DE | A small number of manufacturers' `CostOfGoodsAndServicesSold`/`GrossProfit` XBRL tags resolve to an implausible sub-component (a few $M against $50B+ of revenue) rather than the consolidated figure. Pipeline detects and suppresses these (shows N/A) rather than the ~100% "gross margin" that resulted previously. |
 
-> **Note:** Balance sheet history limitation has been resolved — pipeline retrieves up to 5 years of data. Financials sector edge cases are deferred to the next release.
+> **Note:** Balance sheet history limitation has been resolved — pipeline retrieves up to 5 years of data. Financials sector edge cases are deferred to the next release. Gross margin is now sector-routed (Utilities and REITs are flagged `DEFINITION_MISMATCH` and excluded from consensus comparison rather than computed from a COGS formula that doesn't apply to them; managed-care insurers, freight brokers, and general COGS resolution were corrected — see `scripts/validate_gross_margin.py`).
 
 ---
 
 ## Roadmap
 
 - [ ] Financials agent swarm (NIM, ROTCE, goodwill resolution, CET1 via FFIEC 101)
+- [ ] Improve Revenue by Segment
 - [ ] Management quality module (guidance vs actuals multi-quarter trend, consistency scoring)
 - [ ] GS / investment bank sector routing (gross vs net revenue detection)
 - [ ] Sector-specific ROE / ROIC benchmarks in `pipeline_config.csv`

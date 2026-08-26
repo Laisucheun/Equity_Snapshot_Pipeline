@@ -43,11 +43,32 @@ _FINANCIAL_TICKERS = {
     "DFS","SYF",                                     # consumer finance
 }
 
+# Managed care / health insurers — medical claims costs (PolicyBenefitsAndClaims)
+# are the dominant cost of service and belong in the gross-margin cost base
+# alongside any tagged CostOfGoodsAndServicesSold (e.g. pharmacy/product costs).
+# Left in the "general" COGS branch, these companies' derived gross margin is
+# based only on the (often minor) product-cost tag, understating true cost of
+# service by 40-75pp vs. consensus. Ticker-based (not sector-string-based)
+# because "Healthcare" sector also contains device makers, pharma, etc. that
+# should NOT get this treatment.
+_MANAGED_CARE_TICKERS = {"CNC", "UNH", "ELV", "CI", "CVS", "MOH", "HUM"}
+
+# Freight brokers — non-asset-based logistics companies whose revenue is
+# largely a pass-through to purchased/contracted carriers. Their XBRL
+# filings don't break out "purchased transportation" as a standard us-gaap
+# concept (custom extension tags aren't exposed via the companyfacts API),
+# so there is no reliable way to derive a true "net revenue" COGS figure.
+# Economically there is little daylight between gross and operating margin
+# for a pure broker (almost all cost sits above operating income), so
+# operating margin is used as the best available proxy.
+_FREIGHT_BROKER_TICKERS = {"CHRW", "EXPD"}
+
 
 def _sector_group(sector: str, ticker: str = "") -> str:
     """
-    Map a sector string to one of four routing groups.
-    Returns: 'financials' | 'energy' | 'utilities' | 'general'
+    Map a sector string to a routing group.
+    Returns: 'financials' | 'energy' | 'utilities' | 'real_estate' |
+             'managed_care' | 'freight_broker' | 'general'
 
     'utilities' is separate from 'energy' because:
       - Regulated utilities should not show Operating Cost Ratio (an E&P metric)
@@ -55,15 +76,24 @@ def _sector_group(sector: str, ticker: str = "") -> str:
         not regulated utilities with structurally low working capital and high leverage)
       - Interest coverage and D/E are meaningful and should be computed normally
 
-    'real estate' is intentionally NOT in the financials group — REITs have different
+    'real_estate' is intentionally NOT in the financials group — REITs have different
     characteristics from banks/insurers and should receive the full general ratio set
-    (Gross Margin, D/E, Current Ratio, Altman Z). They will score low on Z-score due
-    to structural leverage, which is expected rather than a bug.
+    (D/E, Current Ratio, Altman Z). They will score low on Z-score due to structural
+    leverage, which is expected rather than a bug. Gross margin specifically IS
+    suppressed (see FundamentalAgent) — REITs have no COGS line and consensus
+    providers report NOI margin, not a comparable gross margin.
     """
-    s = sector.lower()
-    # Ticker-based fallback — catches banks run without explicit sector
-    if ticker.upper() in _FINANCIAL_TICKERS:
+    s = (sector or "").lower()
+    ticker_u = ticker.upper()
+    # Ticker-based fallbacks — catch companies whose sector string alone
+    # wouldn't route them correctly (business-model exceptions within a
+    # broader sector, or banks run without an explicit sector).
+    if ticker_u in _FINANCIAL_TICKERS:
         return "financials"
+    if ticker_u in _MANAGED_CARE_TICKERS:
+        return "managed_care"
+    if ticker_u in _FREIGHT_BROKER_TICKERS:
+        return "freight_broker"
 
     # Fintech and payments companies share sector labels containing "financ" but
     # are NOT banks — they should receive the full general ratio set.
@@ -75,6 +105,8 @@ def _sector_group(sector: str, ticker: str = "") -> str:
         return "financials"
     if any(k in s for k in ["utilities", "utility"]):
         return "utilities"
+    if "real estate" in s:
+        return "real_estate"
     if any(k in s for k in ["energy", "oil", "gas", "mining"]):
         return "energy"
     return "general"
@@ -103,6 +135,96 @@ def _fmt_x(val, decimals=2):
     if isinstance(val, (int, float)):
         return f"{val:.{decimals}f}x"
     return "N/A"
+
+
+def _yfinance_gross_margin_fallback(ticker: str) -> tuple:
+    """
+    Last-resort gross margin source for the most recent period, used only
+    when SEC XBRL data doesn't resolve a comparable figure at all --
+    either the filer doesn't tag a GAAP gross-profit/COGS line (common for
+    telecoms, defense contractors, diversified conglomerates -- e.g. T,
+    RTX, DIS) or the sector's own metric isn't directly comparable
+    (Utilities, REITs). Prefers annual Gross Profit / Total Revenue (same
+    fiscal-year basis as the rest of this report) over the TTM
+    `grossMargins` field, falling back to TTM only if annual data isn't
+    available. Never raises -- returns (None, "") on any failure so the
+    caller shows a clean N/A instead.
+
+    Returns (margin_float_or_None, source_label_str).
+    """
+    try:
+        import yfinance as yf
+        tk = yf.Ticker(ticker)
+        fin = tk.financials
+        if fin is not None and not fin.empty and "Gross Profit" in fin.index and "Total Revenue" in fin.index:
+            gp  = fin.loc["Gross Profit"].iloc[0]
+            rev = fin.loc["Total Revenue"].iloc[0]
+            if gp and rev:
+                return float(gp) / float(rev), "yfinance annual"
+        ttm = tk.info.get("grossMargins")
+        if ttm is not None:
+            return float(ttm), "yfinance TTM"
+    except Exception:
+        pass
+    return None, ""
+
+
+def _yfinance_info_cache(ticker: str) -> dict:
+    """
+    Fetches yfinance's .info dict once per ticker per process, for reuse
+    across the several last-resort fallback fields below (operating
+    margin, net margin, ROE, ROA). Never raises -- returns {} on failure.
+    """
+    if ticker in _YF_INFO_CACHE:
+        return _YF_INFO_CACHE[ticker]
+    info = {}
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+    except Exception:
+        pass
+    _YF_INFO_CACHE[ticker] = info
+    return info
+
+
+_YF_INFO_CACHE: dict = {}
+
+
+def _yfinance_line_item_fallback(ticker: str, info_key: str) -> tuple:
+    """
+    Last-resort fallback for a single .info field (operatingMargins,
+    profitMargins, returnOnEquity, returnOnAssets), used only when the
+    SEC-XBRL-based computation for that line item is N/A. Never raises --
+    returns (None, "") on any failure so the caller shows a clean N/A
+    instead. Returns (value_float_or_None, source_label_str).
+    """
+    info = _yfinance_info_cache(ticker)
+    val = info.get(info_key)
+    if val is None:
+        return None, ""
+    try:
+        return float(val), "yfinance TTM"
+    except (TypeError, ValueError):
+        return None, ""
+
+
+def _yfinance_ratio_fallback(ticker: str, info_key: str, divide_by: float = 1.0) -> tuple:
+    """
+    Same as _yfinance_line_item_fallback, but for raw-multiple fields
+    (current ratio, D/E) rather than percentages -- formatted with
+    _fmt_x() ("1.23x") by the caller instead of _pct(). yfinance reports
+    debtToEquity on a 0-100+ scale (e.g. 78.4 meaning 0.78x), so divide_by
+    lets the caller normalise to a raw multiple; currentRatio/quickRatio
+    are already raw multiples (divide_by=1.0).
+    """
+    info = _yfinance_info_cache(ticker)
+    val = info.get(info_key)
+    if val is None:
+        return None, ""
+    try:
+        return float(val) / divide_by, "yfinance TTM"
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None, ""
 
 
 def _cagr(start, end, years):
@@ -235,7 +357,8 @@ class FundamentalAgent:
         inc = profile.income_statement
         bal = profile.balance_sheet
         periods = profile.periods
-        sg = _sector_group(profile.sector, getattr(profile, 'ticker', ''))
+        ticker = getattr(profile, 'ticker', '')
+        sg = _sector_group(profile.sector, ticker)
 
         gross_margin = {}
         gross_margin_label = "Gross Margin"   # overridden per sector
@@ -402,6 +525,87 @@ class FundamentalAgent:
 
                 net_margin[p] = _pct(_safe_div(ni, rev)) if rev else "N/A"
 
+            # ── Sector: Utilities ────────────────────────────────────────
+            elif sg == "utilities":
+                # Regulated utilities file no COGS line — the "general" branch's
+                # Revenue-COGS derivation lands on whatever partial cost tag
+                # happens to resolve (often just fuel, sometimes nothing),
+                # producing a meaningless (and usually wildly overstated)
+                # margin. Consensus providers use a different convention
+                # (Revenue - fuel & purchased power) that XBRL doesn't
+                # reliably expose across filers (confirmed: DUK tags none of
+                # the fuel/purchased-power concepts AEE/SO do). Flag as a
+                # genuine definitional mismatch rather than guess.
+                gross_margin_label = "Gross Margin"
+                gross_margin[p] = "DEFINITION_MISMATCH (regulated utility — no COGS line)"
+                op_margin[p]  = _pct(_safe_div(oi, rev)) if rev else "N/A"
+                net_margin[p] = _pct(_safe_div(ni, rev)) if rev else "N/A"
+
+            # ── Sector: Real Estate (REITs) ──────────────────────────────
+            elif sg == "real_estate":
+                # REITs have no traditional COGS; consensus providers report
+                # NOI margin (Revenue - property operating expenses), which
+                # is not a comparable "gross margin" and not reliably
+                # derivable from XBRL (property opex tagging is inconsistent
+                # across filers). Flag rather than show a Revenue-COGS
+                # artifact (e.g. negative or >100% margins seen pre-fix).
+                gross_margin_label = "Gross Margin"
+                gross_margin[p] = "DEFINITION_MISMATCH (REIT — no comparable COGS/NOI basis)"
+                op_margin[p]  = _pct(_safe_div(oi, rev)) if rev else "N/A"
+                net_margin[p] = _pct(_safe_div(ni, rev)) if rev else "N/A"
+
+            # ── Sector: Managed care / health insurers ───────────────────
+            elif sg == "managed_care":
+                # Medical claims costs (PolicyBenefitsAndClaims) are the
+                # dominant cost of service for a health insurer and belong
+                # in the cost base — consensus gross margin nets them out
+                # alongside any separately-tagged product/pharmacy COGS.
+                # Left out (as in the general branch), gross margin is based
+                # only on the minor product-cost tag and overstates true
+                # margin by 40-75pp (e.g. UNH 88.7% vs. consensus 19.7%).
+                benefits = inc.insurance_benefits[i]
+                combined_cogs = (cogs or 0) + (benefits or 0)
+                if rev and combined_cogs:
+                    gm_val = _safe_div(rev - combined_cogs, rev)
+                    if isinstance(gm_val, float) and gm_val > 1.0:
+                        gm_val = "N/A (tag overflow)"
+                    gross_margin[p] = _pct(gm_val) if isinstance(gm_val, float) else (gm_val or "N/A")
+                    if isinstance(gm_val, float) and prev_gm is not None:
+                        drop_bps = (prev_gm - gm_val) * 10000
+                        if drop_bps > RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]:
+                            flags.append(
+                                f"Gross margin compressed {drop_bps:.0f}bps: "
+                                f"{_pct(prev_gm)} → {_pct(gm_val)} ({_fy(p)}) — "
+                                f"exceeds {int(RED_FLAG_THRESHOLDS['gross_margin_drop_bps'])}bps warning threshold"
+                            )
+                    prev_gm = gm_val if isinstance(gm_val, float) else prev_gm
+                else:
+                    gross_margin[p] = "N/A (medical costs/COGS missing)"
+                op_margin[p]  = _pct(_safe_div(oi, rev)) if rev else "N/A"
+                net_margin[p] = _pct(_safe_div(ni, rev)) if rev else "N/A"
+
+            # ── Sector: Freight brokers (non-asset-based logistics) ──────
+            elif sg == "freight_broker":
+                # Freight brokers don't tag "purchased transportation" (their
+                # dominant cost) as a standard us-gaap concept, so a true net-
+                # revenue COGS figure isn't derivable. Economically there is
+                # little daylight between gross and operating margin for a
+                # pure broker — almost all cost sits above operating income —
+                # so total operating costs (CostsSubtotal) is used as the
+                # best available proxy, same mechanics as the Energy branch.
+                gross_margin_label = "Net Revenue Margin (≈ Operating Margin)"
+                total_costs = inc.total_operating_costs[i]
+                if total_costs and rev and rev != 0:
+                    proxy_margin = _safe_div(total_costs, rev)
+                    if isinstance(proxy_margin, float):
+                        gross_margin[p] = _pct(1 - proxy_margin) if proxy_margin <= 1 else "N/A (tag overflow)"
+                    else:
+                        gross_margin[p] = "N/A"
+                else:
+                    gross_margin[p] = "N/A (costs missing)"
+                op_margin[p]  = _pct(_safe_div(oi, rev)) if rev else "N/A"
+                net_margin[p] = _pct(_safe_div(ni, rev)) if rev else "N/A"
+
             # ── Sector: General (default) ─────────────────────────────────
             else:
                 # Gross profit fallback: revenue - cogs
@@ -409,11 +613,15 @@ class FundamentalAgent:
                     gp = rev - cogs if rev else 0
 
                 if rev:
-                    # Zero-GP guard: when gross profit is zero but operating income
-                    # is positive, the filer reports no COGS line (common for REITs
-                    # and some utilities — e.g. DLR, MAA). Show N/A rather than 0.00%
-                    # which implies a valid zero gross margin.
-                    if not gp and oi and oi > 0:
+                    # Zero-GP guard: gp/cogs resolving to falsy is indistinguishable
+                    # from "genuinely zero" in this data layer (_get_vector returns
+                    # 0.0 for both an unresolved tag and a real zero) -- a filer
+                    # reporting a literal zero gross profit is effectively never the
+                    # correct read, so treat any falsy gp as "no COGS line filed"
+                    # (common for REITs, some utilities, and filers where COGS
+                    # resolved to an implausible tag and was suppressed upstream --
+                    # e.g. DLR, MAA, DE) rather than show a misleading 0.00%.
+                    if not gp:
                         gm_val = 'N/A (not reported separately)'
                     else:
                         gm_val = _safe_div(gp, rev)
@@ -473,6 +681,63 @@ class FundamentalAgent:
 
             # ROA
             roa[p] = _pct(_safe_div(ni, ta)) if ta else "N/A"
+
+            # ── yfinance last-resort fallback (most recent period only) ────
+            # When the SEC-XBRL-based pipeline can't resolve a comparable
+            # figure at all -- filer doesn't tag a GAAP gross-profit/COGS
+            # line (telecoms, defense contractors, diversified
+            # conglomerates), or the sector's own metric isn't directly
+            # comparable (Utilities, REITs) -- fall back to yfinance rather
+            # than leave the report with a bare N/A. Only fires when the
+            # XBRL path produced nothing usable; never overrides a real
+            # computed value. Every fallback value is labelled with its
+            # source inline so it's never mistaken for a GAAP/XBRL figure.
+            if i == 0 and ticker:
+                # Gross margin fallback only applies where "Gross Margin" is
+                # actually the intended concept. Financials (NIM) and Energy
+                # (Operating Cost Ratio) show a deliberately different metric
+                # under this field -- if THAT metric is unresolved, the fix
+                # is to source NIM/cost-ratio data, not silently swap in an
+                # unrelated yfinance "gross margin" under the same label.
+                if sg not in ("financials", "energy") and isinstance(gross_margin.get(p), str) and (
+                        gross_margin[p].startswith("N/A") or gross_margin[p].startswith("DEFINITION_MISMATCH")):
+                    val, src = _yfinance_gross_margin_fallback(ticker)
+                    if val is not None:
+                        gross_margin[p] = f"{_pct(val)} ({src})"
+                        flags.append(
+                            f"Gross margin ({_fy(p)}) sourced from {src}, not SEC XBRL -- "
+                            f"this filer doesn't tag a comparable GAAP gross-profit/COGS line."
+                        )
+                # A bare "0.00%" is treated the same as "N/A" below: this data
+                # layer uses 0.0 as the sentinel for both an unresolved XBRL
+                # tag and a genuine zero (see the gross-margin zero-GP guard
+                # above), and a company reporting an exact literal zero net
+                # margin/ROE/ROA is effectively never the correct read -- e.g.
+                # AEE's NetIncome tag doesn't resolve here, silently producing
+                # "0.00%" net margin/ROE/ROA instead of the unresolved-data
+                # signal a fallback needs to trigger on.
+                def _unresolved(v):
+                    return isinstance(v, str) and (v.startswith("N/A") or v == "0.00%")
+
+                # Operating margin is deliberately suppressed (not merely
+                # unresolved) for financials -- see "N/A (financials)" above
+                # -- so it's excluded here too; Energy computes it normally.
+                if sg != "financials" and _unresolved(op_margin.get(p)):
+                    val, src = _yfinance_line_item_fallback(ticker, "operatingMargins")
+                    if val is not None:
+                        op_margin[p] = f"{_pct(val)} ({src})"
+                if _unresolved(net_margin.get(p)):
+                    val, src = _yfinance_line_item_fallback(ticker, "profitMargins")
+                    if val is not None:
+                        net_margin[p] = f"{_pct(val)} ({src})"
+                if _unresolved(roe.get(p)):
+                    val, src = _yfinance_line_item_fallback(ticker, "returnOnEquity")
+                    if val is not None:
+                        roe[p] = f"{_pct(val)} ({src})"
+                if _unresolved(roa.get(p)):
+                    val, src = _yfinance_line_item_fallback(ticker, "returnOnAssets")
+                    if val is not None:
+                        roa[p] = f"{_pct(val)} ({src})"
 
             # ROIC proxy (suppress for financials — invested capital concept invalid)
             if sg == "financials":
@@ -989,7 +1254,8 @@ class RiskAgent:
         inc = profile.income_statement
         bal = profile.balance_sheet
         periods = profile.periods
-        sg = _sector_group(profile.sector, getattr(profile, 'ticker', ''))
+        ticker = getattr(profile, 'ticker', '')
+        sg = _sector_group(profile.sector, ticker)
         flags = []
 
         current_ratio = {}
@@ -1102,6 +1368,35 @@ class RiskAgent:
                         )
             else:
                 de_ratio[p] = "N/A (neg. equity)"
+
+            # ── yfinance last-resort fallback (most recent period only) ────
+            # Same rationale as FundamentalAgent's fallback: only fires when
+            # the SEC-XBRL path produced nothing usable, never overrides a
+            # real computed value, and always labels its source inline.
+            if i == 0 and ticker:
+                if sg != "financials" and isinstance(current_ratio.get(p), str) and current_ratio[p].startswith("N/A"):
+                    val, src = _yfinance_ratio_fallback(ticker, "currentRatio")
+                    if val is not None:
+                        current_ratio[p] = f"{_fmt_x(val)} ({src})"
+                # A bare "0.00x" is treated as unresolved only when there's
+                # corroborating evidence (material interest expense against
+                # debt under 0.5% of total assets -- same signal the
+                # interest-coverage "DATA ERROR" guard above already checks
+                # for, e.g. AMT resolves debt=0, T resolves debt=$190M
+                # against ~$550B total assets, both clearly a tag mismatch
+                # not real leverage). A genuinely debt-free company is a
+                # real, if less common, case -- unlike net margin/ROE,
+                # 0.00x isn't assumed unresolved on its own.
+                _de_val = de_ratio.get(p)
+                _debt_negligible = (not debt) or (ta and debt < ta * 0.005)
+                _de_looks_unresolved = isinstance(_de_val, str) and (
+                    _de_val.startswith("N/A")
+                    or (_de_val == "0.00x" and ie and abs(ie) > 0 and _debt_negligible)
+                )
+                if _de_looks_unresolved:
+                    val, src = _yfinance_ratio_fallback(ticker, "debtToEquity", divide_by=100.0)
+                    if val is not None:
+                        de_ratio[p] = f"{_fmt_x(val)} ({src})"
 
             # ── Debt/Capital (all sectors; primary for energy) ────────────
             if eq and eq > 0 and debt:
@@ -3370,8 +3665,11 @@ def _parse_pct(s: str):
 
 
 def _parse_x(s: str):
-    """Parse '2.34x' -> 2.34"""
+    """Parse '2.34x' -> 2.34. Also handles annotated strings like '2.34x (yfinance TTM)'."""
     try:
+        m = re.match(r'^\s*(-?[\d.]+)\s*x', str(s))
+        if m:
+            return float(m.group(1))
         return float(str(s).replace("x", "").strip())
     except Exception:
         return None

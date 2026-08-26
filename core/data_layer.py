@@ -499,6 +499,23 @@ class IncomeStatementProfile(StatementProfile):
         return self._get_vector(['CostOfGoodsAndServicesSold', 'CostsSubtotal'])
 
     @property
+    def total_operating_costs(self) -> np.ndarray:
+        """
+        Total operating costs (CostsAndExpenses), independent of the COGS
+        row. Unlike the `cogs` property, this doesn't fall through a
+        priority list keyed off CostOfGoodsAndServicesSold -- _get_vector()
+        matches on row *existence*, not on whether the row's values are
+        non-null, so `cogs` can silently resolve to zeros (not a real
+        CostsSubtotal fallback) whenever a CostOfGoodsAndServicesSold row
+        exists but was suppressed upstream (see facts_processor._reconcile's
+        COGS plausibility guard). Callers that specifically want the
+        CostsSubtotal figure (e.g. freight-broker net-revenue-margin proxy)
+        should read this property directly instead of relying on that
+        fallback.
+        """
+        return self._get_vector(['CostsSubtotal'])
+
+    @property
     def operating_income(self) -> np.ndarray:
         """
         Try OperatingIncomeLoss tag first (7,793 companies).

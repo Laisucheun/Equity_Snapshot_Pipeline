@@ -76,6 +76,25 @@ logger = logging.getLogger(__name__)
 _MIN_PEERS  = 3    # below this, auto-derive results get supplemented by CSV
 _MAX_PEERS  = 6    # cap — keeps the table readable and limits yfinance calls
 
+
+def _safe_float(value, ticker: str = "", field: str = "") -> float | None:
+    """
+    Coerce a yfinance .info value to float. Some tickers (e.g. TSLA, KMX)
+    intermittently return non-numeric placeholders ("Infinity", "N/A", "")
+    for fields like trailingPE/enterpriseToEbitda instead of a float or
+    None. Left uncoerced, a string like that reaches sorted()/comparisons
+    alongside real floats in fetch() and raises TypeError. Returns None on
+    any coercion failure instead of raising.
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.debug("PeerComparisonLoader: %s field %s -- could not coerce "
+                     "%r to float, dropping", ticker, field, value)
+        return None
+
 # yfinance .info key -> our metric name
 _METRIC_KEYS = {
     "pe_trailing": "trailingPE",
@@ -152,9 +171,15 @@ class PeerComparisonLoader:
 
         metrics_out = {}
         for name, key in _METRIC_KEYS.items():
-            subject_val = subject_metrics.get(key)
-            peer_vals = {p: m.get(key) for p, m in peer_metrics.items()
-                        if m.get(key) is not None}
+            # Re-coerce even though _get_metrics() already does -- values
+            # can arrive here from the same-day SQLite cache, which may
+            # hold entries written before this coercion existed.
+            subject_val = _safe_float(subject_metrics.get(key), ticker, key)
+            peer_vals = {}
+            for p, m in peer_metrics.items():
+                v = _safe_float(m.get(key), p, key)
+                if v is not None:
+                    peer_vals[p] = v
             if subject_val is None or not peer_vals:
                 continue
             values = list(peer_vals.values())
@@ -239,7 +264,7 @@ class PeerComparisonLoader:
         if not info:
             return None
 
-        metrics = {key: info.get(key) for key in _METRIC_KEYS.values()}
+        metrics = {key: _safe_float(info.get(key), ticker, key) for key in _METRIC_KEYS.values()}
         metrics["_industryKey"] = info.get("industryKey", "")
         metrics["_industry"]    = info.get("industry", "")
         # Only cache if at least one real metric resolved — avoids caching
