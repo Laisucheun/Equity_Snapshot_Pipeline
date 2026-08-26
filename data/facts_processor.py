@@ -56,8 +56,72 @@ _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _TIMEOUT     = 25
 _HEADERS     = {"User-Agent": ""}
 
-_cik_cache:   dict[str, str]  = {}
-_facts_cache: dict[str, dict] = {}
+_cik_cache:   dict[str, list[str]] = {}
+_facts_cache: dict[str, dict]      = {}
+
+# Below this many us-gaap concept keys, a CIK match is treated as a
+# shell/subsidiary registrant rather than the primary operating filer.
+_MIN_US_GAAP_CONCEPTS = 50
+
+# Manual CIK corrections, verified against SEC EDGAR directly.
+# Used when SEC's company_tickers.json maps a ticker to the wrong entity
+# (a subsidiary/shelf registrant) or omits it entirely.
+_CIK_OVERRIDES = {
+    # Wrong entity in SEC ticker JSON — maps to subsidiary/shelf entity
+    "XOM":   "34088",      # Exxon Mobil Corp (was mapping to Holdings subsidiary)
+
+    # Missing from SEC ticker JSON — correct CIK confirmed via SEC filings
+    "ANSS":  "1013462",    # ANSYS Inc (delisted Feb 2025 after Synopsys acquisition — use last 10-K)
+    "BK":    "1390777",    # Bank of New York Mellon Corp
+    "DFS":   "1393612",    # Discover Financial Services (acquired by CapOne 2024 — use last 10-K)
+    "EA":    "712515",     # Electronic Arts Inc
+    "FI":    "798354",     # Fiserv Inc
+    "MMC":   "62709",      # Marsh & McLennan Companies
+    "MRO":   "101778",     # Marathon Oil Corp (acquired by ConocoPhillips 2024 — use last 10-K)
+    "PTVE":  "1527508",    # Pactiv Evergreen Inc
+    "WBA":   "1618921",    # Walgreens Boots Alliance (acquired by Sycamore 2025 — use last 10-K)
+    "CTLT":  "1596783",    # Catalent Inc (acquired by Novo Holdings Dec 2024)
+    "DAY":   "1725057",    # Dayforce Inc (formerly Ceridian, acquired by Thoma Bravo 2025)
+    "EQR":   "906107",     # Equity Residential
+    "HES":   "4447",       # Hess Corporation (acquired by Chevron Oct 2024)
+    "HOLX":  "859737",     # Hologic Inc (acquired by Blackstone/TPG 2026)
+    "IPG":   "51644",      # Interpublic Group (acquired by Omnicom Nov 2025)
+    "JNPR":  "1043604",    # Juniper Networks (acquired by HPE Jan 2026)
+    "PKI":   "31791",      # PerkinElmer Inc
+
+    # Standard known overrides
+    "GOOGL": "1652044",    # Alphabet Inc Class A
+    "GOOG":  "1652044",    # Alphabet Inc Class C (same entity)
+    "BRK-B": "1067983",    # Berkshire Hathaway Inc
+    "BRK-A": "1067983",    # Berkshire Hathaway Inc
+}
+
+# Tickers known to be delisted/acquired. The last available 10-K is still
+# useful for historical analysis, so _get_cik() warns rather than failing.
+KNOWN_DELISTINGS = {
+    "BCR":  "C.R. Bard — acquired by Becton Dickinson (2017) — too old, skip",
+    "CTRA": "Coterra Energy — acquired by Devon Energy (May 2026) — very recently delisted",
+    "CTLT": "Catalent — acquired by Novo Holdings (Dec 2024) — last 10-K available",
+    "DAY":  "Dayforce — acquired by Thoma Bravo (2025) — last 10-K available",
+    "FLT":  "FleetCor/Corpay — rebranded; check if filing under new CIK",
+    "HES":  "Hess Corp — acquired by Chevron (Oct 2024) — last 10-K available",
+    "HOLX": "Hologic — acquired by Blackstone/TPG (2026) — last 10-K available",
+    "IPG":  "Interpublic Group — acquired by Omnicom (Nov 2025) — last 10-K available",
+    "JNPR": "Juniper Networks — acquired by HPE (Jan 2026) — last 10-K available",
+    "K":    "Kellanova — acquired by Mars (Oct 2024) — delisted, last 10-K FY2023",
+    "MRO":  "Marathon Oil — acquired by ConocoPhillips (Nov 2024) — last 10-K available",
+    "WBA":  "Walgreens Boots Alliance — acquired by Sycamore (Aug 2025) — last 10-K available",
+    "WRK":  "WestRock — merged into Smurfit WestRock (Jul 2024) — delisted",
+}
+
+# Tickers that file 20-F (foreign private issuers) rather than 10-K.
+# _get_cik() notes this so the pipeline routes to the 20-F ingestion path.
+KNOWN_20F_FILERS = {
+    "ASML": "ASML Holding NV (Netherlands) — files 20-F not 10-K",
+    "AZN":  "AstraZeneca PLC (UK) — files 20-F not 10-K",
+    "CCEP": "Coca-Cola Europacific Partners PLC — files 20-F not 10-K",
+    "GFS":  "GlobalFoundries Inc — files 20-F not 10-K",
+}
 
 
 def set_identity(identity: str) -> None:
@@ -79,19 +143,64 @@ def _load_cik_mapping() -> None:
         for entry in r.json().values():
             t = (entry.get("ticker") or "").upper()
             if t:
-                _cik_cache[t] = str(entry["cik_str"]).zfill(10)
+                cik = str(entry["cik_str"]).zfill(10)
+                bucket = _cik_cache.setdefault(t, [])
+                if cik not in bucket:
+                    bucket.append(cik)
         logger.info("facts_processor: loaded %d CIK mappings", len(_cik_cache))
     except Exception as e:
         logger.warning("facts_processor: CIK fetch failed -- %s", e)
 
 
 def _get_cik(ticker: str) -> str | None:
+    """
+    Resolve ticker -> CIK.
+
+    Check order:
+      1. KNOWN_DELISTINGS -- print a warning and proceed (last 10-K is
+         still useful for historical analysis).
+      2. KNOWN_20F_FILERS -- print a note that this filer uses 20-F.
+      3. _CIK_OVERRIDES -- return the verified override CIK directly.
+      4. Normal resolution against SEC's company_tickers.json.
+
+    SEC's company_tickers.json occasionally maps more than one CIK to the
+    same ticker symbol (e.g. a shelf/subsidiary registrant sharing the
+    parent's ticker). When a ticker has multiple CIK candidates, fetch
+    company facts for each and select the one with the most us-gaap
+    concept keys -- the primary operating filer. A candidate resolving to
+    fewer than _MIN_US_GAAP_CONCEPTS concepts is treated as a shell entity
+    and the next candidate is tried before settling on a final choice.
+    """
     ticker = ticker.upper()
-    if ticker in _cik_cache:
-        return _cik_cache[ticker]
+
+    if ticker in KNOWN_DELISTINGS:
+        print(f"[facts_processor] NOTE: {ticker} is delisted -- {KNOWN_DELISTINGS[ticker]}. "
+              f"Using last available 10-K data for historical analysis.")
+
+    if ticker in KNOWN_20F_FILERS:
+        print(f"[facts_processor] NOTE: {ticker} is a 20-F filer -- {KNOWN_20F_FILERS[ticker]}. "
+              f"Pipeline will use the 20-F ingestion path.")
+
+    if ticker in _CIK_OVERRIDES:
+        return _CIK_OVERRIDES[ticker].zfill(10)
+
     if not _cik_cache:
         _load_cik_mapping()
-    return _cik_cache.get(ticker)
+
+    candidates = _cik_cache.get(ticker)
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    best_cik, best_count = candidates[0], -1
+    for cik in candidates:
+        facts = _get_facts(cik)
+        count = len(facts.get("facts", {}).get("us-gaap", {})) if facts else 0
+        if count > best_count:
+            best_cik, best_count = cik, count
+
+    return best_cik
 
 
 def _get_facts(cik: str) -> dict | None:
@@ -129,15 +238,52 @@ def _get_facts(cik: str) -> dict | None:
 
 _ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
 
+# Concepts where SEC's XBRL companyfacts API can return a segment/product-line
+# dimensional fact alongside the consolidated total under the same raw concept
+# name (companyfacts does not expose dimensional context, so both look
+# identical apart from value). For these concepts, duplicate same-period-end
+# entries are disambiguated by magnitude (largest wins) instead of filing
+# recency -- safe because a segment/component subtotal can never exceed the
+# consolidated total it rolls up into.
+_MAX_MAGNITUDE_CONCEPTS = {
+    # Revenue family — consolidated total always largest
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+    "Revenues",
+    "Revenue",
+    "RevenueFromRelatedParties",
+    "RevenueFromContractsWithCustomers",
+    "SalesRevenueNet",
+    "SalesRevenueGoodsNet",
+    "SalesRevenueServicesNet",
+    "RealEstateRevenueNet",
+    "OperatingLeasesIncomeStatementLeaseRevenue",
+    "OperatingLeaseLeaseIncome",
+    "RegulatedAndUnregulatedOperatingRevenue",
+    "ElectricUtilityRevenue",
+    "RegulatedUtilityRevenue",
+
+    # COGS family — consolidated total always largest
+    "CostOfGoodsSold",
+    "CostOfRevenue",
+    "CostOfGoodsAndServicesSold",
+    "CostOfGoodsSoldExcludingDepreciationDepletionAndAmortization",
+    "CostOfServices",
+}
+
 
 def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
-                    is_instant: bool = False) -> dict[str, float]:
+                    is_instant: bool = False,
+                    use_max_magnitude: bool = False) -> dict[str, float]:
     """
     Extract all annual values for a single raw XBRL concept.
 
     Returns {period_end_date: value} sorted newest-first.
     Deduplicates: if same period_end appears in both a 10-K and a 10-K/A,
-    keeps the most recently filed entry (the amendment supersedes).
+    keeps the most recently filed entry (the amendment supersedes) --
+    unless use_max_magnitude is True, in which case same-period-end
+    duplicates are resolved by largest absolute value instead (see
+    _MAX_MAGNITUDE_CONCEPTS).
 
     Parameters
     ----------
@@ -145,6 +291,11 @@ def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
                  False for income-statement / cash-flow (duration) concepts --
                  adds a day-count filter (300-400 days) to exclude quarterly
                  entries that appear under a 10-K form.
+    use_max_magnitude : When True, same-period-end duplicate entries are
+                 disambiguated by largest absolute value rather than most
+                 recently filed -- used for revenue/COGS-family concepts
+                 where a segment-level fact can share a concept name with
+                 the consolidated total.
     """
     data = us_gaap.get(concept)
     if not data:
@@ -194,9 +345,15 @@ def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
                 # No start date, no fp -> skip (ambiguous)
                 continue
 
-        # Dedup: keep most recently filed for same period end
-        if end not in best or filed > best[end][0]:
-            best[end] = (filed, float(val))
+        # Dedup: keep most recently filed for same period end, or the
+        # largest absolute value when use_max_magnitude is True (segment
+        # vs. consolidated duplicates under the same concept name).
+        if use_max_magnitude:
+            if end not in best or abs(float(val)) > abs(best[end][1]):
+                best[end] = (filed, float(val))
+        else:
+            if end not in best or filed > best[end][0]:
+                best[end] = (filed, float(val))
 
     return {end: v for end, (_, v) in
             sorted(best.items(), key=lambda x: x[0], reverse=True)}
@@ -2186,7 +2343,9 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
         period_vals = {}
 
         for concept in augmented:
-            vals = _extract_annual(us_gaap, concept, unit, is_instant=is_instant)
+            use_max = concept in _MAX_MAGNITUDE_CONCEPTS
+            vals = _extract_annual(us_gaap, concept, unit, is_instant=is_instant,
+                                   use_max_magnitude=use_max)
             if vals:
                 resolved_concept = concept
                 period_vals = vals
@@ -2371,13 +2530,20 @@ def _reconcile(is_df: pd.DataFrame, bs_df: pd.DataFrame,
                                                    for p in periods})
             flags.append("Equity: using inclusive-of-minority-interest figure")
 
-        # -- 3. Gross profit back-calc if missing
+        # -- 3. Gross profit: prefer Revenue - COGS over the XBRL GrossProfit
+        #    tag whenever both are resolved. This also guards against
+        #    GrossProfit resolving to a segment subtotal (e.g. DIS) that
+        #    would otherwise silently understate gross margin without
+        #    tripping the agents.py overflow guard.
         gp   = _cell(is_df, "GrossProfit", p0)
         rev  = _cell(is_df, "Revenue", p0)
         cogs = _cell(is_df, "CostOfGoodsAndServicesSold", p0)
-        if (gp is None or gp == 0) and rev and cogs:
+        if rev and cogs:
             computed = {p: (_cell(is_df, "Revenue", p) or 0) - (_cell(is_df, "CostOfGoodsAndServicesSold", p) or 0)
                         for p in periods}
+            if gp and gp != 0:
+                print(f"[{ticker}] GrossProfit override: XBRL={gp} → "
+                      f"derived={computed.get(p0)} (Revenue - COGS)")
             _fill_row(is_df, "GrossProfit", computed)
 
         # -- 4. Net debt sanity: LT debt should be > 0 for companies
@@ -2473,6 +2639,7 @@ class FactsDataProcessor:
         self.periods:        list[str] = []
         self.resolution_log: dict = {}
         self.data_flags:     list[str] = []
+        self.degraded_reason: str | None = None   # set when standard ingestion failed
 
     def load_data(self, max_years: int = 10) -> bool:
         """
@@ -2489,25 +2656,37 @@ class FactsDataProcessor:
 
         # -- Resolve CIK --------------------------------------------------
         cik = _get_cik(self.ticker)
+        print(f"[DEBUG] {self.ticker}: CIK = {cik}")
         if not cik:
             print(f"[{self.ticker}] CIK not found.")
             return False
 
         # -- Fetch company facts blob -------------------------------------
         facts = _get_facts(cik)
+        print(f"[DEBUG] {self.ticker}: raw company facts response (first 500 chars): {str(facts)[:500]}")
         if not facts:
             print(f"[{self.ticker}] Company facts not available.")
             return False
 
         us_gaap = facts.get("facts", {}).get("us-gaap", {})
-        if not us_gaap:
-            print(f"[{self.ticker}] No us-gaap facts found.")
-            return False
+        print(f"[DEBUG] {self.ticker}: us-gaap concept count = {len(us_gaap)}; "
+              f"first 20 keys = {list(us_gaap.keys())[:20]}")
 
         # -- Discover periods ---------------------------------------------
-        periods = _discover_periods(us_gaap, max_years or 0)
-        if not periods:
-            print(f"[{self.ticker}] No annual periods found.")
+        print(f"[DEBUG] {self.ticker}: calling _discover_periods(us_gaap, max_years={max_years or 0}) "
+              f"to resolve annual periods")
+        periods = _discover_periods(us_gaap, max_years or 0) if us_gaap else []
+        print(f"[DEBUG] {self.ticker}: periods returned by _discover_periods = {periods}")
+
+        if not us_gaap or not periods:
+            if not us_gaap:
+                print(f"[{self.ticker}] No us-gaap facts found.")
+            else:
+                print(f"[{self.ticker}] No annual periods found.")
+
+            # -- Edge-case ingestion fallback chain ------------------------
+            if self._load_via_fallback_chain():
+                return True   # self.financials/.periods/.market_cap already set
             return False
 
         self.periods = periods
@@ -2644,6 +2823,88 @@ class FactsDataProcessor:
               f"periods={len(periods)}")
 
         return True
+
+    def _load_via_fallback_chain(self) -> bool:
+        """
+        Called when standard company-facts ingestion yields 0 us-gaap
+        concepts or 0 annual periods. Tries progressively more targeted
+        recovery paths depending on whether the ticker is a known edge
+        case, before giving up.
+
+        On success, self.financials / self.periods / self.market_cap are
+        populated directly and this returns True. Returns False if every
+        path fails (self.degraded_reason records why).
+        """
+        ticker = self.ticker
+
+        if ticker in KNOWN_20F_FILERS:
+            print(f"[{ticker}] is a 20-F filer — attempting 20-F ingestion")
+            if self._try_single_filing_ingestion():
+                return True
+            print(f"[{ticker}] 20-F ingestion did not yield usable financial data — "
+                  f"degrading to market-data-only sections.")
+            self.degraded_reason = "20F_NO_DATA"
+            return False
+
+        if ticker in KNOWN_DELISTINGS:
+            print(f"[{ticker}] — {KNOWN_DELISTINGS[ticker]} — attempting last available 10-K")
+            if self._try_single_filing_ingestion():
+                return True
+            print(f"[{ticker}] no usable filings found — degrading to market-data-only "
+                  f"sections. Fundamental/risk/valuation sections will show "
+                  f"N/A (company delisted — no current filings).")
+            self.degraded_reason = "DELISTED_NO_DATA"
+            return False
+
+        # General fallback: any other ticker with 0 us-gaap concepts or 0
+        # annual periods -- try the most recently available qualifying
+        # filing before giving up entirely.
+        print(f"[{ticker}] No annual periods found via standard XBRL facts — "
+              f"trying the most recent available filings before giving up...")
+        if self._try_single_filing_ingestion():
+            return True
+
+        self.degraded_reason = "NO_DATA"
+        return False
+
+    def _try_single_filing_ingestion(self) -> bool:
+        """
+        Best-effort fallback: parse the most recent qualifying annual
+        filing directly via RobustDataProcessor (reused, not duplicated),
+        which already tries company.latest("10-K") -> company.latest("20-F")
+        -> a scan of recent filings for the first clean, non-amended one
+        (form=["10-K", "20-F"]). Its .financials output is the same
+        {income_statement, balance_sheet, cash_flow} DataFrame shape this
+        class produces, so it can be adopted directly.
+
+        Returns True and sets self.financials/.periods/.market_cap on
+        success; returns False (leaving this processor's state untouched)
+        if no usable data was found.
+        """
+        try:
+            from core.data_layer import RobustDataProcessor, _META_COLS
+            rdp = RobustDataProcessor(self.ticker, sector=self.sector, cache=self._cache)
+            if not rdp.load_data():
+                return False
+
+            is_df = rdp.financials.get("income_statement")
+            if is_df is None or is_df.empty:
+                return False
+
+            date_cols = [c for c in is_df.columns if c not in _META_COLS]
+            if not date_cols:
+                return False
+
+            self.financials = rdp.financials
+            self.periods    = date_cols
+            self.market_cap = rdp.market_cap or self.market_cap
+            print(f"[{self.ticker}] Fallback ingestion succeeded: "
+                  f"{len(date_cols)} period(s) from single-filing XBRL parse")
+            return True
+        except Exception as e:
+            logger.debug("facts_processor: single-filing fallback failed for %s: %s",
+                        self.ticker, e)
+            return False
 
     def print_resolution_log(self) -> None:
         """Print which raw XBRL concept resolved for each line item."""
