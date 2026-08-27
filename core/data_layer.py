@@ -1308,6 +1308,73 @@ class CashFlowProfile(StatementProfile):
         """FCF ex-M&A = FCF - |Acquisitions|"""
         return self.free_cash_flow - np.abs(self.acquisitions)
 
+    # ── REIT FFO/AFFO components ────────────────────────────────────────────
+    # Only meaningful for real_estate sector_group; callers elsewhere treat
+    # an all-zero array (no matching XBRL tag resolved) as "unavailable" and
+    # degrade gracefully rather than erroring.
+
+    @property
+    def real_estate_da(self) -> np.ndarray:
+        # 'RealEstateDA's specific candidates (DepreciationAndAmortizationRealEstate
+        # etc.) are unverified/rare and, for PSA, resolved to a single stale
+        # 2021-only data point (0 for 2022-2025) rather than a full period
+        # series. 'DepreciationAmortizationCF' is the mature, broadly-tested
+        # label already used by depreciation_amortization below and resolves
+        # correctly across all periods -- included here so _get_max_vector's
+        # period[0]-magnitude comparison picks whichever row actually has
+        # current data.
+        return self._get_max_vector(['RealEstateDA', 'DepreciationAmortizationCF'])
+
+    @property
+    def gain_on_sale_real_estate(self) -> np.ndarray:
+        return self._get_vector(['GainOnSaleRealEstate'])
+
+    @property
+    def impairment_real_estate(self) -> np.ndarray:
+        return self._get_vector(['ImpairmentRealEstate'])
+
+    @property
+    def straight_line_rent_adj(self) -> np.ndarray:
+        return self._get_vector(['StraightLineRentAdj'])
+
+    @property
+    def above_below_market_lease_amort(self) -> np.ndarray:
+        return self._get_vector(['AboveBelowMarketLeaseAmort'])
+
+    @property
+    def maintenance_capex(self) -> np.ndarray:
+        # No REIT-specific maintenance/recurring CapEx tag exists in XBRL for
+        # PSA or SPG (verified live, 2026-08-27) -- most filers don't split
+        # maintenance from growth CapEx in the filed statements, only in
+        # earnings supplements. Falls back to total CapEx, matching the
+        # NAREIT-recommended conservative-proxy approach.
+        result = self._get_vector(['MaintenanceCapex'])
+        if result.any():
+            return result
+        return self.capital_expenditures
+
+    @property
+    def maintenance_capex_is_proxy(self) -> bool:
+        """True if maintenance_capex fell back to total CapEx (no filer-tagged
+        maintenance/recurring CapEx concept resolved) -- used to flag AFFO
+        with a '†' marker."""
+        return not self._get_vector(['MaintenanceCapex']).any()
+
+    @property
+    def non_cash_stock_comp(self) -> np.ndarray:
+        return self._get_vector(['NonCashStockComp'])
+
+    @property
+    def non_cash_interest(self) -> np.ndarray:
+        return self._get_vector(['NonCashInterest'])
+
+    @property
+    def common_dividends_paid(self) -> np.ndarray:
+        # CommonDividendsPaid already exists as a _CF_WATERFALL label (used
+        # elsewhere for financing-activity display); exposed here as a
+        # property for the REIT FFO-payout-ratio red flag.
+        return self._get_vector(['CommonDividendsPaid'])
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

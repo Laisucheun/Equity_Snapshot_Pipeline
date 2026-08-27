@@ -688,16 +688,30 @@ class EquityBriefRenderer:
         story.append(Spacer(1, 4))
 
         # ── Table of Contents (clickable internal links) ──
+        # Sections 5-8 render conditionally further down; the TOC must only
+        # link to anchors that will actually exist, or reportlab raises
+        # "format not resolved ... undefined destination target" at save time.
+        _narrative = commentary.get("narrative", [])
+        _guidance  = commentary.get("management_guidance", [])
+        _needs_p2  = bool(_narrative or _guidance)
+        _ga_avail  = bool((guidance_analysis or {}).get("available")) or bool(_guidance)
+        _ta_avail  = bool((track_analysis or {}).get("available"))
+        _own_avail = bool(ownership or fundamental.get("ownership")) or bool(insider_activity)
+
         _TOC_SECTIONS = [
             ("s1", "1 · Fundamental Analysis"),
             ("s2", "2 · Risk & Solvency"),
             ("s3", "3 · Valuation"),
             ("s4", "4 · Red Flags"),
-            ("s5", "5 · Trend Commentary"),
-            ("s6", "6 · Management Guidance & Tone"),
-            ("s7", "7 · Management Track Record"),
-            ("s8", "8 · Insider & Institutional Information"),
         ]
+        if _needs_p2:
+            _TOC_SECTIONS.append(("s5", "5 · Trend Commentary"))
+            if _ga_avail:
+                _TOC_SECTIONS.append(("s6", "6 · Management Guidance & Tone"))
+            if _ta_avail:
+                _TOC_SECTIONS.append(("s7", "7 · Management Track Record"))
+        if _own_avail:
+            _TOC_SECTIONS.append(("s8", "8 · Insider & Institutional Information"))
         toc_parts = "  ·  ".join(
             f'<link href="#{anchor}" color="#2980B9">{title}</link>'
             for anchor, title in _TOC_SECTIONS
@@ -1114,7 +1128,28 @@ class EquityBriefRenderer:
             fund_rows.append(
                 ["Days Sales of Inv."] + [fundamental["dsi"].get(p, "N/A") for p in periods]
             )
-        if sg != "financials":
+        if sg == "real_estate" and fundamental.get("ffo_available"):
+            # REITs: FFO/AFFO (NAREIT cash-flow standard) replace FCF Margin,
+            # which is a GAAP-CFO-derived metric distorted by real-estate D&A
+            # for this sector (see CFO/EV suppression note in Section 3).
+            def _fmt_ffo_row_val(v):
+                if not isinstance(v, (int, float)):
+                    return "N/A"
+                return f"${v/1e6:,.0f}M"
+            fund_rows.append(
+                ["FFO"] + [_fmt_ffo_row_val(fundamental["ffo"].get(p)) for p in periods]
+            )
+            fund_rows.append(
+                ["FFO Margin"] + [fundamental["ffo_margin"].get(p, "N/A") for p in periods]
+            )
+            affo_label = "AFFO†" if fundamental.get("affo_uses_total_capex") else "AFFO"
+            fund_rows.append(
+                [affo_label] + [_fmt_ffo_row_val(fundamental["affo"].get(p)) for p in periods]
+            )
+            fund_rows.append(
+                ["AFFO Margin"] + [fundamental["affo_margin"].get(p, "N/A") for p in periods]
+            )
+        elif sg != "financials":
             fund_rows.append(
                 ["FCF Margin"] + [fundamental["fcf_margin"].get(p, "N/A") for p in periods]
             )
@@ -1123,6 +1158,20 @@ class EquityBriefRenderer:
         story.append(_ratio_table(fund_header, _drop_all_na(fund_rows)))
         story.append(Spacer(1, 2))
         story.append(Paragraph(cagr_note, styles["meta"]))
+        if sg == "real_estate" and fundamental.get("ffo_available"):
+            _ffo_note = (
+                "FFO = Net Income + Real Estate D&A − Gains on Sale of RE + Impairment "
+                "(NAREIT definition). AFFO = FFO − Straight-line Rent − Lease Amortization "
+                "− Maintenance CapEx + Non-cash Stock Comp + Non-cash Interest. "
+                "Where a component doesn't resolve from filed XBRL, it is simply omitted "
+                "from the sum (treated as zero) rather than blocking the calculation."
+            )
+            if fundamental.get("affo_uses_total_capex"):
+                _ffo_note += (
+                    " † No filer-tagged maintenance/recurring CapEx concept was found — "
+                    "AFFO uses total CapEx as a conservative proxy."
+                )
+            story.append(Paragraph(_ffo_note, styles["meta"]))
 
         # Operating leverage rows (suppress for financials)
         ol = fundamental.get("operating_leverage", {})
@@ -1273,6 +1322,21 @@ class EquityBriefRenderer:
                 cq_rows.append(["Wtd Avg Effective Rate", cq["wtd_avg_rate"]])
             if cq.get("total_debt_m") and cq["total_debt_m"] != "N/A":
                 cq_rows.append(["Total Debt Outstanding", cq["total_debt_m"]])
+
+            # ── Largest single-year maturity tranche vs. EV / total debt ──
+            _lm_amount = cq.get("largest_maturity_amount")
+            if _lm_amount:
+                _lm_parts = [f"${_lm_amount/1e6:,.0f}M ({cq.get('largest_maturity_year', '')})"]
+                _lm_pct_ev = cq.get("largest_maturity_pct_ev")
+                if isinstance(_lm_pct_ev, (int, float)):
+                    _lm_parts.append(f"{_lm_pct_ev:.1f}% of EV")
+                _lm_pct_debt = cq.get("largest_maturity_pct_debt")
+                if isinstance(_lm_pct_debt, (int, float)):
+                    _lm_parts.append(f"{_lm_pct_debt:.1f}% of debt")
+                cq_rows.append(["Largest Maturity", " | ".join(_lm_parts)])
+            else:
+                cq_rows.append(["Largest Maturity", "N/A (maturity schedule unavailable)"])
+
             if cq.get("nearest_maturity") and cq["nearest_maturity"] != "N/A":
                 cq_rows.append(["Nearest Maturity", cq["nearest_maturity"]])
             story.append(_ratio_table(cq_rows[0], cq_rows[1:]))
@@ -1468,6 +1532,45 @@ class EquityBriefRenderer:
         curr_p = periods[0] if periods else "—"
         val_header = ["Metric", "Current"] + [_short_period(p) for p in periods]
 
+        def _fmt_x_val(v):
+            # fcf_ev/cfo_ev/cfo_per_share/ev_fcf/ev_cfo store raw
+            # floats/None/N/A-strings (not pre-formatted, unlike the other
+            # valuation dicts) -- render() formats them as "x.xx" here.
+            if isinstance(v, str):
+                return v  # "N/A (neg FCF)" / "N/A (neg CFO)" etc., as-is
+            if isinstance(v, (int, float)):
+                return f"{v:.2f}x"
+            return "N/A"
+
+        def _fmt_pct_val(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, (int, float)):
+                return f"{v:.2f}%"
+            return "N/A"
+
+        def _fmt_dollar_val(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, (int, float)):
+                return f"${v:.2f}"
+            return "N/A"
+
+        def _fmt_shares_val(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, (int, float)) and v > 0:
+                if v >= 1e9:
+                    return f"{v/1e9:,.2f}B"
+                return f"{v/1e6:,.1f}M"
+            return "N/A"
+
+        def _ev_yield_row(label, key, fmt_fn):
+            d = valuation.get(key, {}) or {}
+            by_period = d.get("by_period", {}) or {}
+            return ([label, fmt_fn(d.get("current"))]
+                   + [fmt_fn(by_period.get(p)) for p in periods])
+
         # Build valuation rows dynamically
         val_rows = []
         val_rows.append(
@@ -1487,6 +1590,25 @@ class EquityBriefRenderer:
             ["EV/Sales", valuation.get("ev_sales_current", {}).get(curr_p, "N/A")]
             + [valuation["ev_sales"].get(p, "N/A") for p in periods]
         )
+        # EV/FCF, FCF/EV are still shown for financials -- agents.py fills
+        # them with an informative "N/A (financials -- use P/TBV instead)"
+        # string rather than hiding the row, since CapEx/FCF are non-core
+        # for banks/insurers. EV/CFO, CFO/EV ARE meaningful for financials
+        # (operating cash flow is a real figure), so always shown.
+        val_rows.append(_ev_yield_row("EV/FCF", "ev_fcf", _fmt_x_val))
+        val_rows.append(_ev_yield_row("EV/CFO", "ev_cfo", _fmt_x_val))
+        val_rows.append(_ev_yield_row("FCF/EV", "fcf_ev", _fmt_pct_val))
+        val_rows.append(_ev_yield_row("CFO/EV", "cfo_ev", _fmt_pct_val))
+        val_rows.append(_ev_yield_row("CFO/Share", "cfo_per_share", _fmt_dollar_val))
+        if sg == "real_estate":
+            # FFO/AFFO-based multiples replace the suppressed CFO/EV, EV/CFO
+            # (see REIT footnote below) as the sector-appropriate cash yield.
+            val_rows.append(_ev_yield_row("EV/FFO", "ev_ffo", _fmt_x_val))
+            val_rows.append(_ev_yield_row("FFO/EV", "ffo_ev", _fmt_pct_val))
+            val_rows.append(_ev_yield_row("EV/AFFO", "ev_affo", _fmt_x_val))
+            val_rows.append(_ev_yield_row("AFFO/EV", "affo_ev", _fmt_pct_val))
+        val_rows.append(_ev_yield_row("Diluted Shares", "diluted_shares", _fmt_shares_val))
+        val_rows.append(_ev_yield_row("Shares Outstanding", "shares_outstanding", _fmt_shares_val))
         story.append(_ratio_table(val_header, _drop_all_na(val_rows)))
         story.append(Spacer(1, 2))
 
@@ -1496,7 +1618,27 @@ class EquityBriefRenderer:
             styles["meta"]
         ))
         story.append(Paragraph(
-            "EV computed at FY-end price × shares + debt - cash. Current EV uses today's price.",
+            "FCF = CFO − CapEx (Pathway A). EV/FCF and EV/CFO shown as multiples (×); "
+            "FCF/EV and CFO/EV shown as yield (%). "
+            "EV computed at FY-end price × shares + debt − cash.",
+            styles["meta"]
+        ))
+        if sg == "real_estate":
+            story.append(Paragraph(
+                "CFO/EV, EV/CFO, and CFO/Share suppressed for REITs. GAAP CFO includes "
+                "real estate depreciation — use FFO (Funds From Operations) for peer comparison. "
+                "FFO = Net Income + Real Estate D&A − Gains on Sale of RE + Impairment "
+                "(NAREIT definition). AFFO = FFO − Straight-line Rent − Lease Amortization "
+                "− Maintenance CapEx + Non-cash Stock Comp + Non-cash Interest.",
+                styles["meta"]
+            ))
+        story.append(Paragraph(
+            "Diluted Shares: yfinance annual \"Diluted Average Shares\" (primary source; "
+            "pre-cleaned, ~4 fiscal years), SEC XBRL diluted share count as fallback for any "
+            "period yfinance doesn't cover. Shares Outstanding: yfinance live snapshot "
+            "(sharesOutstanding) — Current column only, no historical series available. "
+            "All per-share figures above (EPS, BVPS, P/E, P/B, EV, CFO/Share, etc.) use "
+            "this share count.",
             styles["meta"]
         ))
 

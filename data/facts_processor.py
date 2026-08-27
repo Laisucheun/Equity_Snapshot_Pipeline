@@ -2300,9 +2300,81 @@ _CF_WATERFALL = [
         # gaap_mappings.json, only the energy industry extension.
         "PaymentsToExploreAndDevelopOilAndGasProperties",
         "PaymentsForProceedsFromDevelopmentOfRealEstate",
+        # REIT-specific: verified live against PSA and SPG XBRL (2026-08-27).
+        # Neither filer tags the general PropertyPlantAndEquipment concepts
+        # above at all -- confirmed by capital_expenditures resolving to $0
+        # for PSA before this fix, which silently inflated FCF (= CFO - 0)
+        # and every FCF-derived valuation metric (EV/FCF, FCF/EV, AFFO).
+        "PaymentsToAcquireRealEstate",                       # PSA
+        "PaymentsToDevelopRealEstateAssets",                  # PSA
+        "PaymentsToAcquireRealEstateAndRealEstateJointVentures",  # SPG
     ], "USD"),
     ("CapitalLeasePaymentsCF", [
         "RepaymentsOfLongTermCapitalLeaseObligations",
+    ], "USD"),
+    # ── REIT FFO/AFFO components (NAREIT definitions) ──────────────────────
+    # Grouped together (not alphabetical) for traceability. Verified against
+    # live SEC XBRL companyfacts for PSA and SPG (2026-08-27):
+    #   - Neither filer tags a REIT-specific D&A concept separate from the
+    #     general "DepreciationAndAmortization" -- for a pure-play REIT,
+    #     essentially all D&A *is* real-estate D&A, so the generic tags are
+    #     the reliable candidates; the specific ones below are kept first in
+    #     case a rarer filer does split them out, but are unverified/rare.
+    #   - "GainsLossesOnSalesOfInvestmentRealEstate" (PSA) and
+    #     "GainLossOnSaleOfPropertiesBeforeApplicableIncomeTaxes" (SPG) are
+    #     each filer's real gain-on-sale tag -- neither matches the other,
+    #     confirming this needs a broad candidate list, not one "the" tag.
+    #   - No filer-level maintenance/recurring CapEx tag exists for either
+    #     filer -- MaintenanceCapex is expected to fall back to total CapEx
+    #     for most REITs (data_layer.py's maintenance_capex property).
+    ("RealEstateDA", [
+        "DepreciationDepletionAndAmortizationRealEstate",
+        "DepreciationAndAmortizationRealEstate",
+        "RealEstateDepreciationAndAmortization",
+        "DepreciationAndAmortization",
+        "DepreciationDepletionAndAmortization",
+    ], "USD"),
+    ("GainOnSaleRealEstate", [
+        "GainsLossesOnSalesOfInvestmentRealEstate",          # confirmed: PSA
+        "GainLossOnSaleOfPropertiesBeforeApplicableIncomeTaxes",  # confirmed: SPG
+        "GainLossOnDispositionOfProperty",                   # confirmed: PSA
+        "GainLossOnDispositionOfAssets",                     # confirmed: PSA (broader)
+        "GainLossOnSaleOfProperties",
+        "GainLossOnSaleOfRealEstate",
+        "GainOnSaleOfRealEstateHeldForInvestment",
+        "RealEstateInvestmentPropertyGainLossOnDisposal",
+    ], "USD"),
+    ("ImpairmentRealEstate", [
+        "ImpairmentOfRealEstate",             # confirmed: PSA, SPG
+        "ImpairmentLossesRelatedToRealEstate",
+        "AssetImpairmentChargesRealEstate",
+        "AssetImpairmentCharges",             # confirmed: PSA (general fallback)
+    ], "USD"),
+    ("StraightLineRentAdj", [
+        "StraightLineRentAdjustments",
+        "StraightLineRent",                   # confirmed: SPG
+        "StraightLineRentAdjustment",
+    ], "USD"),
+    ("AboveBelowMarketLeaseAmort", [
+        "AmortizationOfAboveAndBelowMarketLeases",
+        "AmortizationOfAboveMarketLeaseIntangibles",
+        "AboveAndBelowMarketLeaseAmortization",
+    ], "USD"),
+    ("MaintenanceCapex", [
+        "PaymentsForCapitalImprovementsRealEstate",
+        "MaintenanceCapitalExpenditures",
+        "RecurringCapitalExpenditures",
+        "PaymentsForImprovements",
+        "PaymentsForCapitalImprovements",
+    ], "USD"),
+    ("NonCashStockComp", [
+        "ShareBasedCompensation",                   # confirmed: PSA
+        "AllocatedShareBasedCompensationExpense",   # confirmed: PSA
+    ], "USD"),
+    ("NonCashInterest", [
+        "AmortizationOfFinancingCosts",              # confirmed: PSA, SPG
+        "AmortizationOfDebtDiscountPremium",         # confirmed: PSA, SPG
+        "AmortizationOfFinancingCostsAndDiscounts",
     ], "USD"),
     ("CashAndCashEquivalents", [
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",

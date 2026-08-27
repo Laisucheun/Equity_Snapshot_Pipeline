@@ -932,6 +932,10 @@ class EquityAnalystOrchestrator:
             earnings_text=earnings_text,
         )
 
+        cash_metrics, data_sources = self._resolve_cash_metrics_and_sources(
+            profile, fundamental, risk, current_price, processor.market_cap,
+        )
+
         return {
             "ticker":      ticker.upper(),
             "sector":      sector,
@@ -950,7 +954,103 @@ class EquityAnalystOrchestrator:
             "analyst_targets":  analyst_targets_data,
             "price_context":    price_context_data,
             "estimate_revisions": estimate_revisions_data,
+            "cash_metrics":  cash_metrics,
+            "data_sources":  data_sources,
         }
+
+    def _resolve_cash_metrics_and_sources(self, profile, fundamental: dict,
+                                          risk: dict, current_price: float | None,
+                                          market_cap: float | None) -> tuple[dict, dict]:
+        """
+        Raw dollar/count values for the most recent FY (cash_metrics), paired
+        with a same-shaped dict tagging where each ultimately came from
+        (data_sources) -- 'xbrl' (SEC filing), 'yfinance' (last-resort
+        fallback), 'derived' (computed from other resolved values), or
+        'none' (unresolved).
+
+        This pipeline's only financial-statement-line-item yfinance
+        fallbacks live in core/agents.py: _yfinance_gross_margin_fallback
+        (gross margin), _yfinance_line_item_fallback (operating margin, net
+        margin, ROE, ROA), and _yfinance_ratio_fallback (current ratio, D/E)
+        -- each detectable by the literal "(yfinance" substring they embed
+        in the formatted string they return (see agents.py). None of the
+        10 metrics tracked here go through any of those three -- net
+        income, CFO, CapEx, total debt, cash, revenue, and gross profit are
+        raw core.data_layer properties with no yfinance fallback of their
+        own; FCF and EV are derived from those. The one real fallback risk
+        is diluted_shares, whose ONLY fallback (ValuationAgent's Fallback 1,
+        core/agents.py) substitutes market_cap/current_price -- live market
+        data, not a financial-statement value -- when the XBRL tag is
+        unresolved, so it's tagged 'yfinance' in that case.
+
+        market_cap/current_price themselves are live market data (not a
+        financial-statement line item subject to this fallback tracking,
+        per the same distinction core/agents.py's fallback functions make)
+        -- there is no SEC-XBRL alternative for "what does the stock trade
+        at today," so EV is tagged 'derived' from them rather than flagged.
+        """
+        periods = profile.periods
+        if not periods:
+            empty = {k: None for k in (
+                "net_income", "cfo", "capex", "fcf", "diluted_shares",
+                "total_debt", "cash", "ev", "revenue", "gross_profit")}
+            return empty, {k: "none" for k in empty}
+
+        inc, bal, cf = profile.income_statement, profile.balance_sheet, profile.cash_flow
+
+        ni     = float(inc.net_income[0]) if inc.net_income[0] else None
+        cfo    = float(cf.operating_cash_flow[0]) if cf.operating_cash_flow[0] else None
+        capex  = float(cf.capital_expenditures[0]) if cf.capital_expenditures[0] else None
+        fcf    = float(cf.free_cash_flow[0]) if cf.free_cash_flow[0] else None
+        shares = float(inc.diluted_shares[0]) if inc.diluted_shares[0] else None
+        debt   = float(bal.total_debt[0]) if bal.total_debt[0] else None
+        cash   = float(bal.cash[0]) if bal.cash[0] else None
+        rev    = float(inc.revenue[0]) if inc.revenue[0] else None
+        gp     = float(inc.gross_profit[0]) if inc.gross_profit[0] else None
+        ev     = ((market_cap or 0) + (debt or 0) - (cash or 0)) if market_cap else None
+
+        cash_metrics = {
+            "net_income": ni, "cfo": cfo, "capex": capex, "fcf": fcf,
+            "diluted_shares": shares, "total_debt": debt, "cash": cash,
+            "ev": ev, "revenue": rev, "gross_profit": gp,
+        }
+
+        def _yf_fallback(s):
+            return isinstance(s, str) and "(yfinance" in s
+
+        mr = periods[0]
+        data_sources = {
+            "net_income":   "xbrl" if ni is not None else "none",
+            "cfo":          "xbrl" if cfo is not None else "none",
+            "capex":        "xbrl" if capex is not None else "none",
+            "total_debt":   "xbrl" if debt is not None else "none",
+            "cash":         "xbrl" if cash is not None else "none",
+            "revenue":      "xbrl" if rev is not None else "none",
+        }
+        # fcf is always CFO - |CapEx| (core.data_layer.CashFlowProfile.free_cash_flow)
+        data_sources["fcf"] = ("derived" if (data_sources["cfo"] == "xbrl"
+                                             and data_sources["capex"] == "xbrl")
+                               else "none")
+        # gross_profit itself has no yfinance fallback; the only yfinance
+        # substitution touching it is the *displayed* gross margin % (which
+        # implies revenue x margin = gross profit) -- reflect that here.
+        gm_str = (fundamental.get("gross_margin") or {}).get(mr, "")
+        if gp is not None:
+            data_sources["gross_profit"] = "yfinance" if _yf_fallback(gm_str) else "xbrl"
+        else:
+            data_sources["gross_profit"] = "none"
+        # diluted_shares: XBRL, unless ValuationAgent's Fallback 1 kicked in
+        # (XBRL unresolved, substituted market_cap/current_price).
+        if shares is not None:
+            data_sources["diluted_shares"] = "xbrl"
+        elif current_price and market_cap:
+            data_sources["diluted_shares"] = "yfinance"
+        else:
+            data_sources["diluted_shares"] = "none"
+        # ev: derived from market_cap (live market data) + XBRL debt - XBRL cash.
+        data_sources["ev"] = "derived" if ev is not None else "none"
+
+        return cash_metrics, data_sources
 
     # ─────────────────────────────────────────
     # Private helpers

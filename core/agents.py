@@ -137,6 +137,21 @@ def _fmt_x(val, decimals=2):
     return "N/A"
 
 
+def _safe_val(arr, i):
+    """
+    arr[i] as a plain float, or None if out of range or falsy. This data
+    layer's np.ndarray properties use 0.0 as the sentinel for an
+    unresolved XBRL tag (see _get_vector/_get_max_vector), so a falsy
+    value here means "unresolved," not "genuinely zero" -- callers get
+    None either way and treat it as N/A.
+    """
+    try:
+        v = arr[i]
+        return float(v) if v else None
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
 def _yfinance_gross_margin_fallback(ticker: str) -> tuple:
     """
     Last-resort gross margin source for the most recent period, used only
@@ -188,6 +203,41 @@ def _yfinance_info_cache(ticker: str) -> dict:
 
 
 _YF_INFO_CACHE: dict = {}
+
+
+def _yfinance_diluted_shares_cache(ticker: str) -> dict:
+    """
+    Fetches yfinance's annual income statement "Diluted Average Shares" row
+    once per ticker per process. yfinance only carries ~4 fiscal years
+    (vs. this pipeline's 5 XBRL periods), so the oldest period is typically
+    absent -- callers must fall back to XBRL diluted_shares for any period
+    not present here. Never raises -- returns {} on failure.
+
+    Returns {fiscal_year_int: diluted_share_count_float}.
+    """
+    if ticker in _YF_DILUTED_SHARES_CACHE:
+        return _YF_DILUTED_SHARES_CACHE[ticker]
+    out = {}
+    try:
+        import yfinance as yf
+        ist = yf.Ticker(ticker).income_stmt
+        if ist is not None and "Diluted Average Shares" in ist.index:
+            row = ist.loc["Diluted Average Shares"]
+            for col, val in row.items():
+                try:
+                    fval = float(val)
+                except (TypeError, ValueError):
+                    continue
+                if fval != fval:  # NaN
+                    continue
+                out[col.year] = fval
+    except Exception:
+        pass
+    _YF_DILUTED_SHARES_CACHE[ticker] = out
+    return out
+
+
+_YF_DILUTED_SHARES_CACHE: dict = {}
 
 
 def _yfinance_line_item_fallback(ticker: str, info_key: str) -> tuple:
@@ -387,6 +437,11 @@ class FundamentalAgent:
         bvps         = {}   # book value per share
         roce         = {}   # return on capital employed
         ffo_margin   = {}   # FFO margin (REITs only)
+        ffo_rows     = {}   # FFO dollar value (REITs only)
+        affo_rows    = {}   # AFFO dollar value (REITs only)
+        affo_margin  = {}   # AFFO margin (REITs only)
+        ffo_components  = {}   # per-period FFO component breakdown (REITs only)
+        affo_components = {}   # per-period AFFO component breakdown (REITs only)
 
         prev_gm = None
 
@@ -972,21 +1027,72 @@ class FundamentalAgent:
             else:
                 bvps[p] = "N/A"
 
-            # ── FFO margin (REITs only) ───────────────────────────────────
-            # FFO = Net income + D&A - gains on property sales
-            # Only computed for Real Estate sector; left blank for all others.
-            if "real estate" in (profile.sector or "").lower():
-                da_ffo  = profile.cash_flow.depreciation_amortization[i]
-                if not da_ffo:
-                    da_ffo = inc.depreciation_amortization[i]
-                gains   = inc.gain_loss_disposals[i]
-                if ni and da_ffo and rev:
-                    ffo = ni + abs(da_ffo) - (gains if gains and gains > 0 else 0)
-                    ffo_margin[p] = _pct(_safe_div(ffo, rev))
+            # ── FFO / AFFO (REITs only, NAREIT definitions) ────────────────
+            # FFO  = Net Income + Real Estate D&A - Gains on Sale of RE
+            #        + Impairment of RE (add-back)
+            # AFFO = FFO - Straight-line Rent Adj - Above/Below-Market Lease
+            #        Amort - Maintenance CapEx + Non-cash Stock Comp
+            #        + Non-cash Interest/Financing Cost Amort
+            # Routed on sg (sector_group), consistent with the CFO/EV
+            # suppression in ValuationAgent, rather than a raw sector-string
+            # match. Only computed for Real Estate; left blank for all others.
+            if sg == "real_estate":
+                re_da      = profile.cash_flow.real_estate_da[i]
+                gain_sale  = profile.cash_flow.gain_on_sale_real_estate[i]
+                impairment = profile.cash_flow.impairment_real_estate[i]
+
+                if ni and re_da:
+                    ffo = ni + abs(re_da) - (gain_sale if gain_sale and gain_sale > 0 else 0) \
+                          + (abs(impairment) if impairment else 0)
+                    ffo_rows[p] = ffo
+                    ffo_margin[p] = _pct(_safe_div(ffo, rev)) if rev else "N/A"
+                    ffo_components[p] = {
+                        "ni": ni, "re_da": re_da,
+                        "gain_sale": gain_sale, "impairment": impairment,
+                    }
+
+                    sl_rent      = profile.cash_flow.straight_line_rent_adj[i]
+                    lease_amort  = profile.cash_flow.above_below_market_lease_amort[i]
+                    maint_capex  = profile.cash_flow.maintenance_capex[i]
+                    stock_comp   = profile.cash_flow.non_cash_stock_comp[i]
+                    non_cash_int = profile.cash_flow.non_cash_interest[i]
+
+                    affo = ffo
+                    if sl_rent:
+                        affo -= sl_rent
+                    if lease_amort:
+                        affo -= abs(lease_amort)
+                    if maint_capex:
+                        affo -= abs(maint_capex)
+                    if stock_comp:
+                        affo += abs(stock_comp)
+                    if non_cash_int:
+                        affo += abs(non_cash_int)
+
+                    affo_rows[p] = affo
+                    affo_margin[p] = _pct(_safe_div(affo, rev)) if rev else "N/A"
+                    affo_components[p] = {
+                        "sl_rent": sl_rent, "lease_amort": lease_amort,
+                        "maint_capex": maint_capex,
+                        "capex_is_total_proxy": profile.cash_flow.maintenance_capex_is_proxy,
+                        "stock_comp": stock_comp, "non_cash_int": non_cash_int,
+                    }
+                    print(
+                        f"[{ticker}] FFO ({p}): NI={ni:,.0f} + RE_DA={abs(re_da):,.0f} "
+                        f"- Gains={gain_sale or 0:,.0f} + Impairment={abs(impairment) if impairment else 0:,.0f} "
+                        f"= FFO={ffo:,.0f}  |  AFFO={affo:,.0f}"
+                        f"{'  (maint capex = total capex proxy)' if affo_components[p]['capex_is_total_proxy'] else ''}"
+                    )
                 else:
+                    ffo_rows[p] = None
                     ffo_margin[p] = "N/A"
+                    affo_rows[p] = None
+                    affo_margin[p] = "N/A"
             else:
+                ffo_rows[p] = None
                 ffo_margin[p] = "N/A (sector)"
+                affo_rows[p] = None
+                affo_margin[p] = "N/A (sector)"
 
         # Revenue CAGR — use financial_revenue for financials sector
         rev_series = inc.financial_revenue if sg == "financials" else inc.revenue
@@ -1223,6 +1329,15 @@ class FundamentalAgent:
             "roce":                 roce,
             "bvps":                 bvps,
             "ffo_margin":           ffo_margin,
+            "ffo":                  ffo_rows,
+            "affo":                 affo_rows,
+            "affo_margin":          affo_margin,
+            "ffo_components":       ffo_components,
+            "affo_components":      affo_components,
+            "ffo_available":        sg == "real_estate",
+            "affo_uses_total_capex": any(
+                v.get("capex_is_total_proxy") for v in affo_components.values()
+            ) if affo_components else False,
             "sector_group":         sg,
             "ownership":            ownership or {},
             "flags":                flags,
@@ -1533,7 +1648,27 @@ class RiskAgent:
             fred_data=fred_data or {},
             sector_group=sg,
             profile=profile,
+            market_cap=market_cap,
         )
+
+        # ── Largest maturity concentration flag ─────────────────────────────
+        _lm_pct_ev = credit_quality.get("largest_maturity_pct_ev")
+        if isinstance(_lm_pct_ev, (int, float)):
+            _lm_year   = credit_quality.get("largest_maturity_year")
+            _lm_amount = credit_quality.get("largest_maturity_amount")
+            _lm_amount_m = _lm_amount / 1e6 if _lm_amount else 0
+            if _lm_pct_ev > 20:
+                flags.append(
+                    f"Largest debt maturity {_lm_year} = ${_lm_amount_m:,.0f}M "
+                    f"({_lm_pct_ev:.1f}% of EV) — significant refinancing cliff; "
+                    f"monitor credit market access"
+                )
+            elif _lm_pct_ev > 10:
+                flags.append(
+                    f"Largest debt maturity {_lm_year} = ${_lm_amount_m:,.0f}M "
+                    f"({_lm_pct_ev:.1f}% of EV) — material refinancing "
+                    f"concentration risk"
+                )
 
         return {
             "periods":           periods,
@@ -1649,7 +1784,8 @@ def _compute_credit_quality(ticker: str,
                              debt_data: dict | None,
                              fred_data: dict,
                              sector_group: str,
-                             profile=None) -> dict:
+                             profile=None,
+                             market_cap: float = 0.0) -> dict:
     """
     Builds the credit quality dict for Section 2.
 
@@ -1662,6 +1798,9 @@ def _compute_credit_quality(ticker: str,
     fred_data   : {risk_free: float|None, all_spreads: dict}
     sector_group: from _sector_group()
     profile     : CompanyFinancialProfile — used to derive IS-based cost of debt
+    market_cap  : current market cap — used only for the largest-maturity-as-
+                  %-of-EV metric below (current-price EV, same formula as
+                  ValuationAgent's curr_ev: market_cap + debt - cash).
 
     Returns dict with all credit quality fields. All values default to "N/A".
     """
@@ -1691,6 +1830,11 @@ def _compute_credit_quality(ticker: str,
         "maturity_wall":     {},   # computed below — year: {amount_m, pct, bar}
         "wam_years":         None, # weighted average maturity in years
         "maturity_flags":    [],   # lumpiness warnings
+        # Largest single-year maturity tranche vs. EV / total debt
+        "largest_maturity_amount":   None,   # dollars (not millions)
+        "largest_maturity_year":     None,
+        "largest_maturity_pct_ev":   None,   # 0-100 scale
+        "largest_maturity_pct_debt": None,   # 0-100 scale
         "total_debt_m":      _NA,
         "wtd_avg_rate":      _NA,
         "nearest_maturity":  _NA,
@@ -1821,6 +1965,34 @@ def _compute_credit_quality(ticker: str,
                 break   # report first cluster only
         result["maturity_flags"] = flags
 
+        # ── Largest single-year maturity tranche vs. EV / total debt ──────
+        # Excludes "thereafter" -- that bucket aggregates every year beyond
+        # the disclosed schedule, so it isn't a genuine single-year
+        # refinancing cliff (same exclusion the lumpiness flags above use).
+        _single_year = {
+            yr: data["amount_m"] for yr, data in wall.items()
+            if "thereafter" not in str(yr).lower()
+            and isinstance(data.get("amount_m"), (int, float)) and data["amount_m"] > 0
+        }
+        if _single_year:
+            largest_m  = max(_single_year.values())
+            largest_yr = next(yr for yr, amt in _single_year.items() if amt == largest_m)
+            result["largest_maturity_amount"] = largest_m * 1e6   # millions -> dollars
+            result["largest_maturity_year"]   = largest_yr
+
+            if total_raw and total_raw > 0:
+                result["largest_maturity_pct_debt"] = largest_m / total_raw * 100
+
+            if profile is not None:
+                try:
+                    debt0 = _safe_val(profile.balance_sheet.total_debt, 0)
+                    cash0 = _safe_val(profile.balance_sheet.cash, 0)
+                    ev_current = (market_cap or 0) + (debt0 or 0) - (cash0 or 0)
+                    if ev_current and ev_current > 0:
+                        result["largest_maturity_pct_ev"] = (largest_m * 1e6) / ev_current * 100
+                except Exception:
+                    pass
+
     return result
 # 3. ValuationAgent
 # ─────────────────────────────────────────────
@@ -1838,6 +2010,7 @@ class ValuationAgent:
               fundamental: dict = None) -> dict:
         inc = profile.income_statement
         bal = profile.balance_sheet
+        cf  = profile.cash_flow
         periods = profile.periods
         sg = _sector_group(profile.sector, getattr(profile, 'ticker', ''))
         flags = []
@@ -1851,18 +2024,56 @@ class ValuationAgent:
         ev_ebitda = {}
         ev_sales_current  = {}
         ev_ebitda_current = {}
+        fy_ev    = {}   # FY-end Enterprise Value per period, hoisted and
+                        # shared by EV/Sales, EV/EBITDA, EV/FCF, EV/CFO,
+                        # FCF/EV, CFO/EV below (was computed inline twice)
+        fcf_ev_rows    = {}
+        cfo_ev_rows    = {}
+        cfo_share_rows = {}
+        ev_fcf_rows    = {}
+        ev_cfo_rows    = {}
+        shares_rows    = {}   # diluted share count actually used per period
+        shares_source  = {}   # "yfinance" | "xbrl" per period
+        ev_ffo_rows    = {}   # REITs only
+        ffo_ev_rows    = {}   # REITs only
+        ev_affo_rows   = {}   # REITs only
+        affo_ev_rows   = {}   # REITs only
 
         market_cap = profile.market_cap
+        fcf_arr = cf.free_cash_flow
+        cfo_arr = cf.operating_cash_flow
+        _ffo_by_period  = (fundamental or {}).get("ffo", {}) or {}
+        _affo_by_period = (fundamental or {}).get("affo", {}) or {}
+
+        # yfinance is now the primary diluted-share source (pre-cleaned,
+        # no unit-tagging ambiguity); XBRL is the fallback for any period
+        # yfinance doesn't cover (it only carries ~4 fiscal years) or when
+        # the ticker has no yfinance income-statement data at all.
+        ticker = getattr(profile, 'ticker', '')
+        _yf_diluted_by_year = _yfinance_diluted_shares_cache(ticker)
+        _yf_shares_outstanding = _yfinance_info_cache(ticker).get('sharesOutstanding')
 
         for i, p in enumerate(periods):
             rev    = inc.revenue[i]
             ni     = inc.net_income[i]
             oi     = inc.operating_income[i]
-            shares = inc.diluted_shares[i]
-            # Fallback 1: derive shares from market cap / current price when the
-            # XBRL filing does not tag a diluted share count (e.g. OXY).
+
+            # Primary: yfinance annual "Diluted Average Shares", matched by
+            # fiscal year. Falls back to the XBRL waterfall (with its own
+            # unit-correction chain below) for any period yfinance doesn't
+            # cover -- it only carries ~4 fiscal years vs. this pipeline's 5.
+            _yf_year = int(p[:4]) if p and p[:4].isdigit() else None
+            shares = _yf_diluted_by_year.get(_yf_year) if _yf_year is not None else None
+            if shares and shares > 0:
+                shares_source[p] = "yfinance"
+            else:
+                shares = inc.diluted_shares[i]
+                shares_source[p] = "xbrl"
+            # Fallback 1: derive shares from market cap / current price when
+            # neither yfinance nor the XBRL filing tag a diluted count (e.g. OXY).
             if (not shares or shares == 0) and current_price and market_cap and current_price > 0:
                 shares = market_cap / current_price
+                shares_source[p] = "implied (mkt cap / price)"
             # Fallback 2: unit correction — some filers (e.g. MCD) report shares
             # in millions (721.9) rather than actual count (721,900,000).
             # Detected by comparing to implied share count from market data:
@@ -1873,6 +2084,7 @@ class ValuationAgent:
                     ratio = implied / shares
                     if 500_000 <= ratio <= 2_000_000:
                         shares = shares * 1_000_000
+            shares_rows[p] = shares
             eq     = bal.equity[i]
             pref   = bal.preferred_stock[i]
             debt   = bal.total_debt[i]
@@ -1939,6 +2151,16 @@ class ValuationAgent:
             da     = profile.cash_flow.depreciation_amortization[i]
             ebitda = (oi + abs(da)) if (oi and da) else (oi if oi else None)
 
+            # ── FY-end Enterprise Value (hoisted) ───────────────────────────
+            # Computed once per period and reused by EV/Sales, EV/EBITDA,
+            # EV/FCF, EV/CFO, FCF/EV, CFO/EV below -- previously recomputed
+            # inline, separately, in both the EV/Sales and EV/EBITDA blocks.
+            if hist_p and shares and shares > 0:
+                fy_market_cap = hist_p * shares
+                fy_ev[p] = fy_market_cap + (debt or 0) - (cash_i or 0)
+            else:
+                fy_ev[p] = None
+
             # ── EV/Sales ─────────────────────────────────────────────────
             # EV/Sales is suppressed for financials: revenue includes gross
             # interest income on a multi-trillion asset base, making the ratio
@@ -1946,9 +2168,8 @@ class ValuationAgent:
             #
             # Two bases are computed: "current" (today's market cap -- the
             # original approximation, market cap + debt, no cash netting,
-            # unchanged) and a per-FY historical figure using FY-end price x
-            # shares for market cap, netting FY-end cash
-            # (fy_ev = fy_market_cap + debt - cash).
+            # unchanged) and a per-FY historical figure using fy_ev above
+            # (FY-end price x shares for market cap, netting FY-end cash).
             if sg == "financials":
                 ev_sales[p]         = "N/A (financials)"
                 ev_sales_current[p] = "N/A (financials)" if i == 0 else "—"
@@ -1962,10 +2183,8 @@ class ValuationAgent:
                 else:
                     ev_sales_current[p] = "—"
 
-                if hist_p and shares and rev:
-                    fy_market_cap = hist_p * shares
-                    fy_ev = fy_market_cap + (debt or 0) - (cash_i or 0)
-                    ev_sales[p] = _fmt_x(_safe_div(fy_ev, rev))
+                if fy_ev[p] and rev:
+                    ev_sales[p] = _fmt_x(_safe_div(fy_ev[p], rev))
                 else:
                     ev_sales[p] = "N/A"
 
@@ -1983,12 +2202,200 @@ class ValuationAgent:
                 else:
                     ev_ebitda_current[p] = "—"
 
-                if hist_p and shares and ebitda and ebitda > 0:
-                    fy_market_cap = hist_p * shares
-                    fy_ev = fy_market_cap + (debt or 0) - (cash_i or 0)
-                    ev_ebitda[p] = _fmt_x(_safe_div(fy_ev, ebitda))
+                if fy_ev[p] and ebitda and ebitda > 0:
+                    ev_ebitda[p] = _fmt_x(_safe_div(fy_ev[p], ebitda))
                 else:
                     ev_ebitda[p] = "N/A"
+
+            # ── FCF/EV, CFO/EV, CFO/Share, EV/FCF, EV/CFO (FY-end basis) ──
+            # Suppressed for financials, matching EV/Sales and EV/EBITDA
+            # above -- these are all EV-denominated, and EV isn't a
+            # meaningful concept for banks (debt is raw material, not
+            # capital structure).
+            #
+            # CFO-based metrics (CFO/EV, EV/CFO, CFO/Share) are additionally
+            # suppressed for REITs: GAAP CFO for a REIT includes real-estate
+            # depreciation add-backs that don't behave like a normal
+            # operating-cash proxy -- validated against yfinance consensus,
+            # REIT CFO shows ~-99% deltas. FFO (Funds From Operations) is
+            # the sector-standard cash metric, not in scope here. FCF-based
+            # metrics (FCF/EV, EV/FCF) are NOT suppressed -- FCF = CFO -
+            # CapEx is still a GAAP figure, just annotated as such via the
+            # REIT footnote in the renderer rather than per-cell (keeps
+            # these dicts holding plain floats/None, not a third value
+            # shape mixing numbers with inline annotation text).
+            fcf_i = _safe_val(fcf_arr, i)
+            cfo_i = _safe_val(cfo_arr, i)
+            ev_p  = fy_ev[p]
+            _reit_na = "N/A (REIT — use FFO)"
+
+            # ── EV/FFO, FFO/EV, EV/AFFO, AFFO/EV (REITs only) ──────────────
+            # FFO/AFFO come from FundamentalAgent's per-period computation
+            # (NAREIT definitions); reuses the same fy_ev[p] as EV/EBITDA.
+            if sg == "real_estate":
+                ffo_i  = _ffo_by_period.get(p)
+                affo_i = _affo_by_period.get(p)
+                if ev_p and ev_p > 0:
+                    if isinstance(ffo_i, (int, float)) and ffo_i > 0:
+                        ev_ffo_rows[p] = round(ev_p / ffo_i, 2)
+                        ffo_ev_rows[p] = round(ffo_i / ev_p * 100, 2)
+                    elif isinstance(ffo_i, (int, float)) and ffo_i <= 0:
+                        ev_ffo_rows[p] = "N/A (neg FFO)"
+                        ffo_ev_rows[p] = round(ffo_i / ev_p * 100, 2)
+                    else:
+                        ev_ffo_rows[p] = None
+                        ffo_ev_rows[p] = None
+                    if isinstance(affo_i, (int, float)) and affo_i > 0:
+                        ev_affo_rows[p] = round(ev_p / affo_i, 2)
+                        affo_ev_rows[p] = round(affo_i / ev_p * 100, 2)
+                    elif isinstance(affo_i, (int, float)) and affo_i <= 0:
+                        ev_affo_rows[p] = "N/A (neg AFFO)"
+                        affo_ev_rows[p] = round(affo_i / ev_p * 100, 2)
+                    else:
+                        ev_affo_rows[p] = None
+                        affo_ev_rows[p] = None
+                else:
+                    ev_ffo_rows[p] = None
+                    ffo_ev_rows[p] = None
+                    ev_affo_rows[p] = None
+                    affo_ev_rows[p] = None
+
+            _fin_na = "N/A (financials — use P/TBV instead)"
+            if sg == "financials":
+                # CapEx/FCF are non-core for banks/insurers (PP&E is not the
+                # capital-allocation lever -- loan/investment portfolio is),
+                # so the FCF-based multiples are suppressed with a pointer to
+                # P/TBV. CFO-based metrics are kept: operating cash flow is
+                # still a meaningful figure for financials.
+                fcf_ev_rows[p] = _fin_na
+                ev_fcf_rows[p] = _fin_na
+                cfo_ev_rows[p] = round(cfo_i / ev_p * 100, 2) if (cfo_i is not None and ev_p and ev_p > 0) else None
+                if ev_p and ev_p > 0:
+                    if cfo_i is not None and cfo_i > 0:
+                        ev_cfo_rows[p] = round(ev_p / cfo_i, 2)
+                    elif cfo_i is not None and cfo_i <= 0:
+                        ev_cfo_rows[p] = "N/A (neg CFO)"
+                    else:
+                        ev_cfo_rows[p] = None
+                else:
+                    ev_cfo_rows[p] = None
+            else:
+                # FCF/EV -- yield metric, negative is a meaningful (if
+                # unwelcome) signal, so no sign guard.
+                fcf_ev_rows[p] = round(fcf_i / ev_p * 100, 2) if (fcf_i is not None and ev_p and ev_p > 0) else None
+                cfo_ev_rows[p] = (_reit_na if sg == "real_estate" else
+                                  (round(cfo_i / ev_p * 100, 2) if (cfo_i is not None and ev_p and ev_p > 0) else None))
+
+                # EV/FCF -- multiple ("how many years of cash flow to pay
+                # for EV"), where a negative value is nonsensical rather
+                # than meaningful, so shown as an explicit N/A instead of a
+                # misleading negative multiple.
+                if ev_p and ev_p > 0:
+                    if fcf_i is not None and fcf_i > 0:
+                        ev_fcf_rows[p] = round(ev_p / fcf_i, 2)
+                    elif fcf_i is not None and fcf_i <= 0:
+                        ev_fcf_rows[p] = "N/A (neg FCF)"
+                    else:
+                        ev_fcf_rows[p] = None
+                else:
+                    ev_fcf_rows[p] = None
+
+                if sg == "real_estate":
+                    ev_cfo_rows[p] = _reit_na
+                elif ev_p and ev_p > 0:
+                    if cfo_i is not None and cfo_i > 0:
+                        ev_cfo_rows[p] = round(ev_p / cfo_i, 2)
+                    elif cfo_i is not None and cfo_i <= 0:
+                        ev_cfo_rows[p] = "N/A (neg CFO)"
+                    else:
+                        ev_cfo_rows[p] = None
+                else:
+                    ev_cfo_rows[p] = None
+
+            # Implausibility guard: diluted share counts outside this range
+            # signal a bad XBRL tag (e.g. reported in millions rather than
+            # absolute count) rather than a real mega/micro-cap share count.
+            _shares_plausible = bool(shares) and 1_000_000 < shares < 500_000_000_000
+            if sg == "real_estate":
+                cfo_share_rows[p] = _reit_na
+            else:
+                cfo_share_rows[p] = round(cfo_i / shares, 4) if (cfo_i is not None and _shares_plausible) else None
+
+        # ── FCF/EV, CFO/EV, CFO/Share, EV/FCF, EV/CFO -- current-price basis ──
+        # Current EV nets FY-end... i.e. today's cash (market_cap + debt -
+        # cash), unlike ev_ebitda_current/ev_sales_current above, which
+        # don't net cash (kept unchanged -- out of scope for this change).
+        # Both are legitimate "current EV" readings that differ only in
+        # whether cash is netted; this is a pre-existing asymmetry between
+        # the historical (nets cash) and original current-basis (doesn't)
+        # formulas, not something introduced here.
+        curr_debt  = _safe_val(bal.total_debt, 0)
+        curr_cash  = _safe_val(bal.cash, 0)
+        curr_ev    = (market_cap or 0) + (curr_debt or 0) - (curr_cash or 0)
+        curr_fcf   = _safe_val(fcf_arr, 0)
+        curr_cfo   = _safe_val(cfo_arr, 0)
+        if _yf_shares_outstanding:
+            curr_shares = float(_yf_shares_outstanding)
+            curr_shares_source = "yfinance"
+        else:
+            curr_shares = _safe_val(inc.diluted_shares, 0)
+            curr_shares_source = "xbrl"
+
+        if not curr_ev or curr_ev <= 0:
+            curr_fcf_ev = None
+            curr_cfo_ev = None
+            curr_ev_fcf = None
+            curr_ev_cfo = None
+        elif sg == "financials":
+            curr_fcf_ev = _fin_na
+            curr_ev_fcf = _fin_na
+            curr_cfo_ev = round(curr_cfo / curr_ev * 100, 2) if curr_cfo is not None else None
+            if curr_cfo is not None and curr_cfo > 0:
+                curr_ev_cfo = round(curr_ev / curr_cfo, 2)
+            elif curr_cfo is not None and curr_cfo <= 0:
+                curr_ev_cfo = "N/A (neg CFO)"
+            else:
+                curr_ev_cfo = None
+        else:
+            curr_fcf_ev = round(curr_fcf / curr_ev * 100, 2) if curr_fcf is not None else None
+            curr_cfo_ev = _reit_na if sg == "real_estate" else (
+                round(curr_cfo / curr_ev * 100, 2) if curr_cfo is not None else None)
+            if curr_fcf is not None and curr_fcf > 0:
+                curr_ev_fcf = round(curr_ev / curr_fcf, 2)
+            elif curr_fcf is not None and curr_fcf <= 0:
+                curr_ev_fcf = "N/A (neg FCF)"
+            else:
+                curr_ev_fcf = None
+            if sg == "real_estate":
+                curr_ev_cfo = _reit_na
+            elif curr_cfo is not None and curr_cfo > 0:
+                curr_ev_cfo = round(curr_ev / curr_cfo, 2)
+            elif curr_cfo is not None and curr_cfo <= 0:
+                curr_ev_cfo = "N/A (neg CFO)"
+            else:
+                curr_ev_cfo = None
+
+        _curr_shares_plausible = bool(curr_shares) and 1_000_000 < curr_shares < 500_000_000_000
+        if sg == "real_estate":
+            curr_cfo_share = _reit_na
+        else:
+            curr_cfo_share = (round(curr_cfo / curr_shares, 4)
+                              if (curr_cfo is not None and _curr_shares_plausible) else None)
+
+        # ── EV/FFO, FFO/EV, EV/AFFO, AFFO/EV -- current-price basis (REITs) ──
+        # No live/TTM FFO source exists, so "current" reuses the most recent
+        # fiscal year's FFO/AFFO against today's EV (same convention as
+        # curr_fcf/curr_cfo above, which reuse fcf_arr[0]/cfo_arr[0]).
+        curr_ev_ffo = curr_ffo_ev = curr_ev_affo = curr_affo_ev = None
+        if sg == "real_estate" and curr_ev and curr_ev > 0 and periods:
+            _curr_ffo  = _ffo_by_period.get(periods[0])
+            _curr_affo = _affo_by_period.get(periods[0])
+            if isinstance(_curr_ffo, (int, float)):
+                curr_ffo_ev = round(_curr_ffo / curr_ev * 100, 2)
+                curr_ev_ffo = round(curr_ev / _curr_ffo, 2) if _curr_ffo > 0 else "N/A (neg FFO)"
+            if isinstance(_curr_affo, (int, float)):
+                curr_affo_ev = round(_curr_affo / curr_ev * 100, 2)
+                curr_ev_affo = round(curr_ev / _curr_affo, 2) if _curr_affo > 0 else "N/A (neg AFFO)"
 
         # ── Premium valuation flag (most recent period only) ────────────────
         # Uses ev_ebitda_current (today's price basis), not ev_ebitda (now a
@@ -2035,6 +2442,19 @@ class ValuationAgent:
             "ev_ebitda":        ev_ebitda,
             "ev_sales_current":  ev_sales_current,
             "ev_ebitda_current": ev_ebitda_current,
+            "fcf_ev":         {"current": curr_fcf_ev, "by_period": fcf_ev_rows},
+            "cfo_ev":         {"current": curr_cfo_ev, "by_period": cfo_ev_rows},
+            "cfo_per_share":  {"current": curr_cfo_share, "by_period": cfo_share_rows},
+            "ev_fcf":         {"current": curr_ev_fcf, "by_period": ev_fcf_rows},
+            "ev_cfo":         {"current": curr_ev_cfo, "by_period": ev_cfo_rows},
+            "ev_ffo":         {"current": curr_ev_ffo, "by_period": ev_ffo_rows},
+            "ffo_ev":         {"current": curr_ffo_ev, "by_period": ffo_ev_rows},
+            "ev_affo":        {"current": curr_ev_affo, "by_period": ev_affo_rows},
+            "affo_ev":        {"current": curr_affo_ev, "by_period": affo_ev_rows},
+            "diluted_shares": {"current": curr_shares, "by_period": shares_rows},
+            "shares_outstanding": {"current": curr_shares if curr_shares_source == "yfinance" else None,
+                                    "by_period": {}},
+            "shares_source":  {"current": curr_shares_source, "by_period": shares_source},
             "current_price":  current_price,
             "market_cap":     market_cap,
             "sector_group":   sg,
@@ -3643,6 +4063,79 @@ class TrendCommentaryAgent:
         cagr = fundamental.get("revenue_cagr", "N/A")
         if cagr and cagr != "N/A":
             comments.append(f"Revenue {len(periods)-1}-yr CAGR: {cagr}.")
+
+        # ── REIT red flags (FFO/AFFO) ───────────────────────────────────────
+        if sg == "real_estate" and fundamental.get("ffo_available"):
+            ffo_mr  = fundamental.get("ffo", {}).get(mr)
+            ffo_pr  = fundamental.get("ffo", {}).get(pr)
+            affo_mr = fundamental.get("affo", {}).get(mr)
+            ffo_margin_mr = _parse_pct(fundamental.get("ffo_margin", {}).get(mr, ""))
+            ffo_margin_pr = _parse_pct(fundamental.get("ffo_margin", {}).get(pr, ""))
+            affo_margin_mr = _parse_pct(fundamental.get("affo_margin", {}).get(mr, ""))
+            affo_margin_pr = _parse_pct(fundamental.get("affo_margin", {}).get(pr, ""))
+
+            # FFO margin declining >500bps YoY
+            if ffo_margin_mr is not None and ffo_margin_pr is not None:
+                delta_bps = (ffo_margin_mr - ffo_margin_pr) * 10000
+                if delta_bps < -500:
+                    flags.append(
+                        f"FFO margin contracted {abs(delta_bps):.0f}bps YoY "
+                        f"({_fy(pr)}→{_fy(mr)}) — monitor distribution sustainability"
+                    )
+
+            # AFFO margin declining >300bps YoY
+            if affo_margin_mr is not None and affo_margin_pr is not None:
+                delta_bps = (affo_margin_mr - affo_margin_pr) * 10000
+                if delta_bps < -300:
+                    flags.append(
+                        f"AFFO margin contracted {abs(delta_bps):.0f}bps YoY "
+                        f"({_fy(pr)}→{_fy(mr)}) — monitor capex intensity and lease economics"
+                    )
+
+            # AFFO negative
+            if isinstance(affo_mr, (int, float)) and affo_mr < 0:
+                flags.append(
+                    "AFFO negative — distribution likely exceeds adjusted cash generation"
+                )
+
+            # Dividend payout exceeding FFO (most recent period)
+            if isinstance(ffo_mr, (int, float)) and ffo_mr > 0:
+                try:
+                    divs_paid = abs(profile.cash_flow.common_dividends_paid[0])
+                    if divs_paid and divs_paid > ffo_mr:
+                        flags.append(
+                            f"Dividends (${divs_paid/1e6:,.0f}M) exceed FFO "
+                            f"(${ffo_mr/1e6:,.0f}M) — distribution may not be covered "
+                            f"by operations"
+                        )
+                except (IndexError, TypeError):
+                    pass
+
+            # FFO-to-AFFO spread > 20%
+            if (isinstance(ffo_mr, (int, float)) and ffo_mr > 0
+                    and isinstance(affo_mr, (int, float))):
+                spread_pct = (ffo_mr - affo_mr) / ffo_mr * 100
+                if spread_pct > 20:
+                    flags.append(
+                        f"Large FFO-to-AFFO gap ({spread_pct:.0f}%) — high non-cash "
+                        f"adjustments or maintenance capex intensity"
+                    )
+
+            # EV/FFO, EV/AFFO premium valuation (most recent period)
+            ev_ffo_mr = valuation.get("ev_ffo", {}).get("by_period", {}).get(mr)
+            ev_ffo_f = ev_ffo_mr if isinstance(ev_ffo_mr, (int, float)) else None
+            if ev_ffo_f is not None and ev_ffo_f > 30:
+                flags.append(
+                    f"EV/FFO {ev_ffo_f:.1f}x — premium valuation vs REIT peers "
+                    f"(typical range 15-25x)"
+                )
+            ev_affo_mr = valuation.get("ev_affo", {}).get("by_period", {}).get(mr)
+            ev_affo_f = ev_affo_mr if isinstance(ev_affo_mr, (int, float)) else None
+            if ev_affo_f is not None and ev_affo_f > 35:
+                flags.append(
+                    f"EV/AFFO {ev_affo_f:.1f}x — elevated vs REIT peers "
+                    f"(typical range 20-30x)"
+                )
 
         # ── Guidance: prefer 8-K earnings release, fall back to 10-K MD&A ────
         guidance = []
