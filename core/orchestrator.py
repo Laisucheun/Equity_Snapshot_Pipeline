@@ -55,6 +55,7 @@ from core.config import FRED_API_KEY
 from market.fred_client import FredClient
 from ingestion.debt_note_fetcher import fetch_debt_note
 from ingestion.xbrl_debt_fetcher import set_identity as _xbrl_set_identity
+from utils.tune_tone import _infer_sector as _infer_sector_static
 
 
 # ── Execution quality ─────────────────────────────────────────────────────────
@@ -395,7 +396,7 @@ class EquityAnalystOrchestrator:
 
     def run(self,
             ticker: str,
-            sector: str = "General",
+            sector: str | None = None,
             author: str  = "Research Team",
             output_dir: str = None,
             edgar_identity: str = None,
@@ -406,7 +407,10 @@ class EquityAnalystOrchestrator:
         Parameters
         ----------
         ticker      : Stock ticker (e.g. "AAPL")
-        sector      : Sector label for the cover page and future sector routing
+        sector      : Sector label for the cover page and sector routing. Omit
+                      (or pass "General") to auto-detect from the filer's SIC
+                      code -- see _resolve_sector(). An explicit value here
+                      always wins over auto-detection.
         author      : Name printed on watermark and footer
         output_dir  : Directory to save the PDF.
                       Defaults to a "Reports" folder next to this script.
@@ -436,6 +440,8 @@ class EquityAnalystOrchestrator:
                 f"If recently acquired, it may be delisted. "
                 f"Run: python scripts/test_ticker_availability.py --universe mag7"
             )
+
+        sector = self._resolve_sector(ticker, sector, processor)
 
         profile = CompanyFinancialProfile(
             ticker     = ticker,
@@ -827,7 +833,7 @@ class EquityAnalystOrchestrator:
 
     def run_data_only(self,
                       ticker: str,
-                      sector: str = "General") -> dict:
+                      sector: str | None = None) -> dict:
         """
         Runs steps 1–4 of the pipeline (data + agents) without rendering a PDF.
         Returns a dict containing all agent outputs keyed by agent name.
@@ -855,6 +861,8 @@ class EquityAnalystOrchestrator:
         processor = FactsDataProcessor(ticker, sector=sector)
         if not processor.load_data(max_years=5):
             raise RuntimeError(f"Data ingestion failed for {ticker}.")
+
+        sector = self._resolve_sector(ticker, sector, processor)
 
         profile = CompanyFinancialProfile(
             ticker             = ticker,
@@ -1055,6 +1063,39 @@ class EquityAnalystOrchestrator:
     # ─────────────────────────────────────────
     # Private helpers
     # ─────────────────────────────────────────
+
+    def _resolve_sector(self, ticker: str, explicit_sector: str | None,
+                         processor: "FactsDataProcessor") -> str:
+        """
+        Final sector for agent routing, cover page, and momentum peers.
+
+        Priority:
+          1. Explicit sector arg — always wins.
+          2. Static ticker→sector table (utils.tune_tone) — curated,
+             GICS-aligned entries for common large-caps. Checked before
+             SIC inference because raw SIC codes can't always disambiguate
+             GICS sector (e.g. WMT's SIC 5331 "Retail-Variety Stores" would
+             map to Consumer Discretionary by SIC alone, but the curated
+             table correctly has it as Consumer Staples) -- this keeps
+             known tickers' sector, peer group, and sector-ETF benchmark
+             unchanged from before SIC-based inference existed.
+          3. SIC-based inference (processor.sector, set inside
+             processor.load_data() from the filer's SIC code) — covers
+             tickers absent from the static table, e.g. VTR.
+          4. "General".
+        """
+        # "General" is treated the same as "not passed" (matching
+        # FactsDataProcessor's own _sector_explicit convention) rather than
+        # as an override -- it's the ambiguous default a caller gets from an
+        # un-inferrable prior lookup, not a deliberate sector assignment.
+        if explicit_sector and explicit_sector != "General":
+            return explicit_sector
+        static_sector = _infer_sector_static(ticker)
+        if static_sector and static_sector != "Unknown":
+            return static_sector
+        if processor.sector and processor.sector != "General":
+            return processor.sector
+        return "General"
 
     def _build_fred_data(self, fred_data: dict) -> dict:
         """

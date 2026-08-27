@@ -1044,11 +1044,25 @@ class FundamentalAgent:
                 if ni and re_da:
                     ffo = ni + abs(re_da) - (gain_sale if gain_sale and gain_sale > 0 else 0) \
                           + (abs(impairment) if impairment else 0)
+
+                    # UPREIT structures (e.g. SPG): consolidated NI already
+                    # nets out the OP unitholders' (noncontrolling interest)
+                    # share, but NAREIT defines FFO as "FFO attributable to
+                    # common shareholders AND OP unitholders" -- they're
+                    # economically equivalent for FFO purposes, so add the
+                    # NCI share back. Omitting this understated SPG's FFO by
+                    # ~its full NCI share vs. investor-relations-disclosed FFO.
+                    nci = _safe_val(inc.minority_interest_expense, i)
+                    if nci:
+                        ffo += abs(nci)
+                        print(f"[{ticker}] REIT FFO ({p}): NCI addback = {nci/1e6:,.0f}M")
+
                     ffo_rows[p] = ffo
                     ffo_margin[p] = _pct(_safe_div(ffo, rev)) if rev else "N/A"
                     ffo_components[p] = {
                         "ni": ni, "re_da": re_da,
                         "gain_sale": gain_sale, "impairment": impairment,
+                        "nci_addback": abs(nci) if nci else 0,
                     }
 
                     sl_rent      = profile.cash_flow.straight_line_rent_adj[i]

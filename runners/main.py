@@ -26,7 +26,6 @@ import os
 import time
 import traceback
 from core.orchestrator import EquityAnalystOrchestrator
-from utils.tune_tone import _infer_sector
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +59,9 @@ def main():
     parser = argparse.ArgumentParser(description="Equity Brief Pipeline")
     parser.add_argument("ticker", nargs="?", default=None,
                         help="Single ticker to run (omit to run the full MAG7 batch)")
+    parser.add_argument("sector", nargs="?", default=None,
+                        help="Explicit sector override (optional). Omit to "
+                             "auto-detect from the filer's SEC SIC code.")
     parser.add_argument("--no-pdf",    action="store_true",
                         help="Skip PDF rendering — console diagnostics only")
     parser.add_argument("--no-stitch", action="store_true",
@@ -70,10 +72,11 @@ def main():
 
     if args.ticker:
         ticker = args.ticker.upper()
-        sector = _infer_sector(ticker)
-        if not sector or sector == "Unknown":
-            sector = "General"
-        run_list = [(ticker, sector)]
+        # None here means "auto-detect" -- EquityAnalystOrchestrator.run()
+        # resolves it from the filer's SIC code (falling back to the static
+        # ticker table, then "General") once ingestion has run. An explicit
+        # CLI sector always wins over auto-detection.
+        run_list = [(ticker, args.sector)]
     else:
         run_list = list(TICKERS.items())
 
@@ -85,6 +88,7 @@ def main():
     print("─" * 65)
 
     for idx, (ticker, sector) in enumerate(run_list, 1):
+        sector_label = sector or "auto-detect"
         try:
             path = orch.run(
                 ticker,
@@ -95,12 +99,12 @@ def main():
             )
             label = "✓  diagnostics only" if args.no_pdf else "✓  saved"
             results.append((ticker, "OK", path or ""))
-            print(f"{idx:>3}  {ticker:<8}  {sector:<28}  {label}")
+            print(f"{idx:>3}  {ticker:<8}  {sector_label:<28}  {label}")
 
         except Exception as e:
             msg = str(e)[:80]
             results.append((ticker, "FAILED", msg))
-            print(f"{idx:>3}  {ticker:<8}  {sector:<28}  ✗  {msg}")
+            print(f"{idx:>3}  {ticker:<8}  {sector_label:<28}  ✗  {msg}")
             traceback.print_exc()
 
         if idx < n:

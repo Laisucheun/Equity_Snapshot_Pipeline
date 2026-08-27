@@ -277,6 +277,47 @@ _MAX_MAGNITUDE_CONCEPTS = {
 }
 
 
+def _is_annual_period(entry: dict) -> bool:
+    """
+    True if a raw XBRL fact entry represents a full annual (~12-month) period.
+
+    Duration is checked FIRST and is authoritative whenever both start/end
+    are present. `fp` (fiscal period focus) is a FILING-level tag, not a
+    per-fact one -- it reflects which period the filing as a whole covers,
+    not the duration of this specific fact. A prior version of this check
+    trusted fp in ('FY', 'CY') unconditionally, which let quarterly facts
+    through: REIT 10-Ks commonly include a "selected quarterly financial
+    data" footnote table, and every fact in it inherits fp='FY' from the
+    encompassing FY filing despite spanning ~90 days. Confirmed live for
+    AMT: its FY2024 10-K (filed 2025-02-25) contains Revenues entries for
+    2024-01-01..2024-03-31, 2024-04-01..2024-06-30, and 2024-07-01..
+    2024-09-30, all three tagged fp='FY' -- these were being accepted as
+    annual periods, contaminating period discovery with quarterly dates
+    for AMT and SPG.
+
+    340-380 days covers standard calendar years (365), leap years (366),
+    and 52/53-week fiscal years (357/364/371) with margin.
+
+    fp is used only as a fallback when no start date is present (some CF
+    non-cash add-backs are filed duration-less, fp='FY' only).
+    """
+    start = entry.get("start")
+    end   = entry.get("end")
+    fp    = entry.get("fp", "")
+
+    if start and end:
+        try:
+            days = (datetime.date.fromisoformat(end)
+                    - datetime.date.fromisoformat(start)).days
+            return 340 <= days <= 380
+        except (ValueError, TypeError):
+            pass  # unparseable -- fall through to fp fallback below
+
+    if fp in ("FY", "CY"):
+        return True
+    return False
+
+
 def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
                     is_instant: bool = False,
                     use_max_magnitude: bool = False) -> dict[str, float]:
@@ -325,30 +366,12 @@ def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
         if val is None or not end:
             continue
 
-        # Duration filter: IS/CF entries must span ~1 year.
-        # Priority: fp='FY' or 'CY' -> always accept (annual fiscal/calendar year).
-        # Fallback: day-count filter for entries without fp field.
-        # 52/53-week fiscal years: 357-371 day spans are valid annual periods.
-        # CF non-cash add-backs: often filed with no start date, fp='FY' only.
-        if not is_instant:
-            start = e.get("start", "")
-            fp    = e.get("fp", "")
-            # Explicit annual period marker -> always accept
-            if fp in ("FY", "CY"):
-                pass  # accept regardless of day count
-            elif start:
-                try:
-                    days = (datetime.date.fromisoformat(end)
-                            - datetime.date.fromisoformat(start)).days
-                    # Reject clear quarterly (60-120 days) or semi-annual (150-200 days)
-                    # Accept anything 250+ days as a likely annual entry
-                    if days < 250:
-                        continue
-                except (ValueError, TypeError):
-                    pass
-            else:
-                # No start date, no fp -> skip (ambiguous)
-                continue
+        # Duration filter: IS/CF entries must span ~1 year. See
+        # _is_annual_period() -- duration is authoritative when start/end
+        # are both present; fp is a filing-level tag, not a per-fact one,
+        # and is only trusted as a fallback with no start date.
+        if not is_instant and not _is_annual_period(e):
+            continue
 
         # Dedup: keep most recently filed for same period end, or the
         # largest absolute value when use_max_magnitude is True (segment
@@ -599,6 +622,67 @@ def _sic_to_industry(sic: int | None) -> str | None:
                     best_width = width
                     best_industry = industry
     return best_industry
+
+
+# Fine-grained edgartools industry → pipeline sector taxonomy.
+# Only industries with an unambiguous sector mapping are listed here --
+# anything absent (e.g. "consumergoods", which edgartools does not split
+# into staples vs. discretionary) falls through to the broad SIC-range
+# mapping in universe/build_sec_universe.py instead of being guessed at.
+#
+# "payment_networks" deliberately maps to "Financial Technology", not
+# "Financial Services" -- _sector_group() in core/agents.py explicitly
+# carves fintech/payments out of the banking/insurance routing group, and
+# a sector string containing "financial technology" hits that carve-out.
+_FINE_INDUSTRY_TO_SECTOR = {
+    "banking":              "Financial Services",
+    "insurance":            "Financial Services",
+    "securities":           "Financial Services",
+    "investment_companies": "Financial Services",
+    "payment_networks":     "Financial Technology",
+    "realestate":           "Real Estate",
+    "energy":               "Energy",
+    "utilities":            "Utilities",
+    "healthcare":           "Healthcare",
+    "tech":                 "Technology",
+    "semiconductors":       "Technology",
+    "telecom":              "Communication Services",
+    "transportation":       "Industrials",
+    "aerospace":            "Industrials",
+    "automotive":           "Consumer Discretionary",
+    "mining":               "Materials",
+    "retail":               "Consumer Discretionary",
+    "hospitality":          "Consumer Discretionary",
+}
+
+
+def _infer_sector_from_sic(sic: int | None, fine_industry: str | None = None) -> str | None:
+    """
+    Map a SIC code to the pipeline's sector taxonomy, for dynamic sector
+    routing that covers every SEC filer rather than only the tickers in a
+    static lookup table.
+
+    Priority: fine-grained edgartools industry (_sic_to_industry) first --
+    it already resolves overlapping SIC ranges to the narrowest match (e.g.
+    SIC 6798 -> "realestate" over the broader "investment_companies" bucket)
+    -- then the broad SIC-range sector map from universe/build_sec_universe.py
+    for anything not covered above. Returns None if the SIC code is missing
+    or unmapped by either source (caller should fall back further).
+    """
+    if not sic:
+        return None
+
+    fine_industry = fine_industry if fine_industry is not None else _sic_to_industry(sic)
+    mapped = _FINE_INDUSTRY_TO_SECTOR.get(fine_industry) if fine_industry else None
+    if mapped:
+        return mapped
+
+    try:
+        from universe.build_sec_universe import _sic_to_sector
+    except Exception:
+        return None
+    broad = _sic_to_sector(sic)
+    return broad if broad and broad != "General" else None
 
 
 # Fine-grained industry → {standard_tag: [raw_concepts_priority]}.
@@ -867,6 +951,14 @@ _MAX_MAGNITUDE_CONCEPTS.update({
     "ServiceRevenue", "WirelessRevenue", "WirelineRevenue",
     "SubscriptionRevenue", "SoftwareLicenseRevenue",
     "LicenseRevenue", "SalesRevenueNet", "SalesRevenueGoodsNet",
+})
+
+# REIT real-estate CapEx concepts -- same segment-subtotal-vs-consolidated
+# risk as the revenue family above (a property-level or JV-level CapEx fact
+# can share a concept name with the consolidated total for the same period).
+_MAX_MAGNITUDE_CONCEPTS.update({
+    "PaymentsToAcquireRealEstate",
+    "PaymentsToDevelopRealEstateAssets",
 })
 
 
@@ -2305,9 +2397,23 @@ _CF_WATERFALL = [
         # above at all -- confirmed by capital_expenditures resolving to $0
         # for PSA before this fix, which silently inflated FCF (= CFO - 0)
         # and every FCF-derived valuation metric (EV/FCF, FCF/EV, AFFO).
-        "PaymentsToAcquireRealEstate",                       # PSA
-        "PaymentsToDevelopRealEstateAssets",                  # PSA
+        "PaymentsToAcquireRealEstate",                       # PSA, O, VTR
+        "PaymentsToDevelopRealEstateAssets",                  # PSA, VTR
         "PaymentsToAcquireRealEstateAndRealEstateJointVentures",  # SPG
+        # Verified live against O and VTR XBRL (2026-08-27) while testing
+        # this fix -- AMT needed no addition here, it already tags the
+        # general PaymentsToAcquirePropertyPlantAndEquipment/
+        # PaymentsToAcquireProductiveAssets candidates above (towers are
+        # general PP&E in AMT's own taxonomy use, not "real estate").
+        "PaymentsToAcquireCommercialRealEstate",              # O, VTR
+        "PaymentsToAcquireAndDevelopRealEstate",              # O
+        "PaymentsForDepositsOnRealEstateAcquisitions",        # O
+        # Unverified -- not found live for PSA/SPG/AMT/O/VTR, kept only in
+        # case a different REIT filer uses one of these; harmless no-ops
+        # otherwise since an unmatched candidate is simply skipped.
+        "PaymentsToAcquireRealEstateAndRealEstateJointVentureInterests",
+        "PaymentsForRealEstate",
+        "CashPaidForRealEstateAcquisitions",
     ], "USD"),
     ("CapitalLeasePaymentsCF", [
         "RepaymentsOfLongTermCapitalLeaseObligations",
@@ -3166,10 +3272,14 @@ class FactsDataProcessor:
         .data_flags       -> list[str]  reconciliation warnings
     """
 
-    def __init__(self, ticker: str, sector: str = "General",
+    def __init__(self, ticker: str, sector: str | None = None,
                  cache=None):
         self.ticker  = ticker.upper()
-        self.sector  = sector
+        # A caller-supplied sector that is neither missing nor the "General"
+        # placeholder is treated as an explicit override and always wins over
+        # SIC-based inference (see load_data()).
+        self._sector_explicit = bool(sector) and sector != "General"
+        self.sector  = sector or "General"
         self._cache  = cache   # unused for now; reserved for future caching
 
         self.financials:     dict = {}
@@ -3215,6 +3325,16 @@ class FactsDataProcessor:
         self._sic = self._get_sic(self.ticker, cik)
         self._fine_industry = _sic_to_industry(self._sic)
         print(f"[{self.ticker}] SIC={self._sic} → industry={self._fine_industry}")
+
+        # -- SIC-based sector inference (unless caller passed an explicit
+        #    override) -- must run before any of the sector-gated logic
+        #    below (Financial Services revenue derivation, REIT overrides,
+        #    etc.) so it sees the resolved sector. ----------------------
+        if not self._sector_explicit:
+            _inferred_sector = _infer_sector_from_sic(self._sic, self._fine_industry)
+            if _inferred_sector:
+                print(f"[{self.ticker}] sector inferred from SIC {self._sic}: {_inferred_sector}")
+                self.sector = _inferred_sector
 
         # -- Fetch company facts blob -------------------------------------
         facts = _get_facts(cik)

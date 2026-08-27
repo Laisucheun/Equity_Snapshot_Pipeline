@@ -626,9 +626,16 @@ class IncomeStatementProfile(StatementProfile):
         Falls back to net_income when no continuing-ops tag is filed.
         """
         result = self._get_vector(['IncomeLossContinuingOperations'])
-        if result.any():
-            return result
-        return self.net_income
+        # Per-period fallback, not whole-array: some filers (e.g. VTR) only
+        # tag IncomeLossContinuingOperations for the years they actually had
+        # discontinued operations to separate out, leaving 0 for the other
+        # years in this same resolved row. A whole-array `if result.any()`
+        # check is satisfied by the years that DO have data and then keeps
+        # the 0s for the years that don't, instead of falling back to
+        # net_income for just those periods -- confirmed live for VTR,
+        # where this silently zeroed out net income (and therefore FFO) for
+        # 3 of 5 years.
+        return np.where(result != 0, result, self.net_income)
 
     @property
     def pretax_income(self) -> np.ndarray:
