@@ -1,6 +1,6 @@
 key,value,description,unit,domain_notes
 de_ratio,3.0,D/E ratio above this triggers high leverage flag,multiple (×),"Adjust by sector: utilities ~2.0×; retail ~4.0×; tech/SaaS ~1.5×; capital-intensive industrials ~3–4×"
-gross_margin_drop_bps,500,YoY gross margin compression that triggers flag,basis points (100 bps = 1%),"500bps = 5pp drop; tighten to 300bps for stable-margin staples; loosen to 700bps for commodity-exposed sectors"
+gross_margin_drop_bps,300,YoY gross margin compression that triggers flag,basis points (100 bps = 1%),"300bps = 3pp drop; was 500bps; loosen to 700bps for commodity-exposed sectors"
 current_ratio,1.0,Current ratio below this triggers liquidity flag,multiple (×),"Retailers and restaurants structurally run below 1.0× — raise to 0.80× for those sectors; 1.5× for manufacturing"
 interest_coverage,2.0,EBIT / interest below this triggers debt service flag,multiple (×),"2× is a conservative floor; investment grade > 5×; leveraged loans often 1.5–2.5×; distressed < 1×"
 revenue_cagr_negative,0.0,Revenue CAGR below this triggers top-line contraction flag,decimal (0.0 = 0%),"Set to -0.03 to only flag >3% decline — useful for mature/regulated sectors where slight decline is normal"

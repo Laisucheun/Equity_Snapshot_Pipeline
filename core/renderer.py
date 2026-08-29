@@ -20,6 +20,7 @@ Watermark: diagonal grey "CONFIDENTIAL / <author>" on every page.
 """
 
 import os
+import re
 from datetime import date
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -105,6 +106,42 @@ _CELL_STYLE_MUTED = ParagraphStyle(
     textColor=C_GREY, leading=8.5, wordWrap="CJK",
     alignment=TA_CENTER,
 )
+# For atomic values that must never be split mid-token — dates, signed
+# currency amounts. The default cell style uses wordWrap="CJK", which breaks
+# at any character, so a date in a narrow column rendered as "2026-06-1 8".
+_CELL_STYLE_NOWRAP = ParagraphStyle(
+    "cell_nowrap", fontName="Helvetica", fontSize=7.5,
+    textColor=C_DARK, leading=9, alignment=TA_LEFT,
+    wordWrap=None, splitLongWords=0,
+)
+
+
+def _cell_nowrap(val: str) -> Paragraph:
+    return Paragraph(str(val), _CELL_STYLE_NOWRAP)
+# Sub-rows: the YoY Δ / CAGR annotations rendered beneath a metric row in
+# Section 3. One point smaller than the metric row and indented, so they
+# read as an annotation of the row above rather than a metric of their own.
+_CELL_STYLE_SUB = ParagraphStyle(
+    "cell_sub", fontName="Helvetica", fontSize=6.5,
+    textColor=C_GREY, leading=8, wordWrap="CJK",
+    alignment=TA_CENTER,
+)
+_CELL_STYLE_SUB_LABEL = ParagraphStyle(
+    "cell_sub_label", fontName="Helvetica-Oblique", fontSize=6.5,
+    textColor=C_GREY, leading=8, wordWrap="CJK",
+    alignment=TA_LEFT, leftIndent=8,
+)
+
+
+# A bare "&" in a table label (PP&E, SG&A) is parsed by ReportLab as the
+# start of an XML entity and renders as "PP&E;". Escape bare ampersands
+# only — anything already written as a proper entity (&amp;, &#127;) is left
+# alone so it isn't double-escaped into "&amp;amp;".
+_BARE_AMP_RE = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)")
+
+
+def _esc_amp(s) -> str:
+    return _BARE_AMP_RE.sub("&amp;", str(s))
 
 
 def _cell(val: str) -> Paragraph:
@@ -118,7 +155,7 @@ def _cell(val: str) -> Paragraph:
     it (a) renders centred within the column, and (b) PDF text extraction
     picks up the surrounding spaces rather than concatenating adjacent dashes.
     """
-    s = str(val)
+    s = _esc_amp(val)
     if s.strip() == "—":
         # Use thin spaces around the dash so adjacent placeholder cells don't
         # run together in PDF text extraction ("77.26x——" → "77.26x  —  —")
@@ -236,6 +273,29 @@ def _is_na_cell(val: str) -> bool:
     return any(s.startswith(p) for p in _STRUCTURAL)
 
 
+# Maps a FundamentalAgent "_METRIC_SUPPRESSION" metric name to the literal
+# Section 1 row label it corresponds to. Several rows are already relabeled
+# per-sector (e.g. "Gross Margin" becomes "Net Interest Margin" for banks,
+# "Operating Cost Ratio" for energy) -- those relabeled rows are meaningful
+# replacements, not omissions, so they deliberately do NOT match here and
+# are never removed. "COGS / Revenue" has no corresponding row at all (not
+# rendered for any sector), so it's intentionally absent from this map.
+# Values may be a single row label or a tuple of them, for metrics whose
+# suppression must carry dependent rows with it -- suppressing "FCF Margin"
+# also suppresses the three SBC rows, which are derived from FCF and would
+# otherwise survive for the very sectors (REITs, banks, insurers) where FCF
+# was judged not meaningful. One decision, one place.
+_SUPPRESSION_ROW_ALIASES = {
+    "Gross Margin":            "Gross Margin",
+    "Operating Margin":        "Operating Margin",
+    "Inventory Turnover":      "Inv. Turnover",
+    "Days Sales of Inventory": "Days Sales of Inv.",
+    "FCF Margin":              ("FCF Margin", "SBC / Revenue",
+                                "FCF after SBC", "FCF after SBC Mgn"),
+    "ROIC":                    "ROIC (proxy)",
+}
+
+
 def _drop_all_na(rows: list) -> list:
     """
     Remove rows where every data cell (columns 1+) is an N/A variant.
@@ -247,24 +307,32 @@ def _drop_all_na(rows: list) -> list:
 
 
 def _ratio_table(header_row: list, data_rows: list,
-                 col_widths=None) -> Table:
+                 col_widths=None, sub_rows: set = None) -> Table:
     """
     Builds a ratio table. Every cell is wrapped in a Paragraph so ReportLab
     word-wraps long strings (e.g. diagnostic N/A messages) instead of clipping.
     header_row: list of strings
     data_rows:  list of lists of strings
+    sub_rows:   optional set of 0-based indices into data_rows to render in
+                the smaller, indented annotation style (YoY Δ / CAGR rows).
     """
+    sub_rows = sub_rows or set()
     # Wrap header cells
-    wrapped_header = [Paragraph(str(c), _CELL_STYLE_HEADER) for c in header_row]
+    wrapped_header = [Paragraph(_esc_amp(c), _CELL_STYLE_HEADER) for c in header_row]
     # Wrap data cells — col 0 is the label (left-aligned), rest are values
     wrapped_data = []
-    for row in data_rows:
+    for i, row in enumerate(data_rows):
+        is_sub = i in sub_rows
         wrapped_row = []
         for j, c in enumerate(row):
-            p = _cell(str(c))
-            if j == 0:
+            if is_sub:
+                p = Paragraph(_esc_amp(c), _CELL_STYLE_SUB_LABEL if j == 0
+                              else _CELL_STYLE_SUB)
+            elif j == 0:
                 # Label column: use normal (non-muted) style even for N/A labels
-                p = Paragraph(str(c), _CELL_STYLE)
+                p = Paragraph(_esc_amp(c), _CELL_STYLE)
+            else:
+                p = _cell(str(c))
             wrapped_row.append(p)
         wrapped_data.append(wrapped_row)
 
@@ -295,8 +363,489 @@ def _ratio_table(header_row: list, data_rows: list,
         ("GRID",          (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [C_WHITE, C_LIGHT]),
     ]
+    # Annotation sub-rows sit tight under their metric row (+1 for header)
+    for i in sub_rows:
+        if 0 <= i < len(wrapped_data):
+            r = i + 1
+            style.append(("TOPPADDING",    (0, r), (-1, r), 1))
+            style.append(("BOTTOMPADDING", (0, r), (-1, r), 1))
     t.setStyle(TableStyle(style))
     return t
+
+
+# Colours for the YoY Δ annotation rows — growth green, decline red.
+_C_YOY_UP   = "#1E8449"
+_C_YOY_DOWN = "#A93226"
+
+
+def _fmt_signed_pct(v, decimals: int = 1) -> str:
+    """'+13.8%' / '-52.1%', colour-coded by sign. '—' when not computable."""
+    if not isinstance(v, (int, float)):
+        return "—"
+    color = _C_YOY_UP if v >= 0 else _C_YOY_DOWN
+    return f'<font color="{color}">{v:+.{decimals}f}%</font>'
+
+
+def _trend_subrows(trend: dict, periods: list) -> list:
+    """
+    YoY Δ and CAGR annotation rows for one Section 3 metric.
+
+    Returns 0-2 rows shaped to the Section 3 table (label + "Current"
+    column + one column per period). The "Current" column is a live-price
+    figure rather than a fiscal period, so it never carries a YoY value.
+    The oldest period has no prior year, so it shows "—" too.
+
+    Rows are omitted entirely when nothing resolves: no YoY row when every
+    period is None, no CAGR row when fewer than 3 periods have data.
+    """
+    if not trend or not periods:
+        return []
+    rows   = []
+    yoy    = trend.get("yoy", {}) or {}
+    cagr   = trend.get("cagr")
+    n_yrs  = trend.get("n_years") or 0
+
+    if any(isinstance(yoy.get(p), (int, float)) for p in periods):
+        rows.append(["YoY Δ", "—"] + [_fmt_signed_pct(yoy.get(p)) for p in periods])
+
+    if isinstance(cagr, (int, float)):
+        label = f"CAGR ({n_yrs}yr)" if n_yrs else "CAGR"
+        # Value sits under the most recent fiscal year — it is the compound
+        # rate through that period, not a current-price figure.
+        rows.append([label, "—", _fmt_signed_pct(cagr * 100)]
+                    + [""] * (len(periods) - 1))
+
+    return rows
+
+
+# ─────────────────────────────────────────────
+# Section 2B — Working Capital & Capital Intensity
+# ─────────────────────────────────────────────
+
+def _fmt_days(v) -> str:
+    if isinstance(v, (int, float)):
+        return f"{v:,.1f}"
+    return "N/A"
+
+
+def _fmt_pct1(v) -> str:
+    if isinstance(v, (int, float)):
+        return f"{v:.1f}%"
+    return "N/A"
+
+
+def _fmt_pct2(v) -> str:
+    """Two-decimal percent; passes diagnostic strings (N/A (pre-split)) through."""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return f"{v:.2f}%"
+    return "N/A"
+
+
+def _fmt_signed_pct1(v) -> str:
+    """Signed one-decimal percent, for the share-count change row."""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return f"{v:+.1f}%"
+    return "N/A"
+
+
+def _fmt_nwc(v) -> str:
+    """Net working capital in $B / $M, signed."""
+    if not isinstance(v, (int, float)):
+        return "N/A"
+    sign = "-" if v < 0 else ""
+    a = abs(v)
+    if a >= 1e9:
+        return f"{sign}${a/1e9:,.1f}B"
+    if a >= 1e6:
+        return f"{sign}${a/1e6:,.0f}M"
+    return f"{sign}${a:,.0f}"
+
+
+def _build_wc_rows(wc: dict, periods: list) -> list:
+    """
+    Section 2B rows for the given working-capital payload, already filtered
+    by mode. Returns [] when the section shouldn't render at all — mode is
+    "skip" (banks, insurers, REITs) or nothing resolved from XBRL.
+    """
+    if not wc or not periods:
+        return []
+    mode = wc.get("mode", "skip")
+    if mode == "skip":
+        return []
+
+    def _row(label, key, fmt):
+        return [label] + [fmt(wc.get(key, {}).get(p)) for p in periods]
+
+    rows = [
+        _row("DSO (days)", "dso", _fmt_days),
+    ]
+    if mode == "full":
+        rows.append(_row("DIO (days)", "dio", _fmt_days))
+    rows += [
+        _row("DPO (days)", "dpo", _fmt_days),
+        _row("CCC (days)", "ccc", _fmt_days),
+        _row("NWC ($)",       "nwc",         _fmt_nwc),
+        _row("NWC / Revenue", "nwc_pct_rev", _fmt_pct1),
+        _row("AR / Revenue",  "ar_pct_rev",  _fmt_pct1),
+        _row("AP / Revenue",  "ap_pct_rev",  _fmt_pct1),
+    ]
+    if mode == "full":
+        rows += [
+            _row("Inv / Revenue", "inv_pct_rev", _fmt_pct1),
+            _row("Inv / Assets",  "inv_pct_ta",  _fmt_pct1),
+        ]
+    rows += [
+        _row("PP&E / Assets",   "ppe_pct_ta",    _fmt_pct1),
+        _row("CapEx / Revenue", "capex_pct_rev", _fmt_pct1),
+        _row("CapEx / CFO",     "capex_pct_cfo", _fmt_pct1),
+    ]
+    return _drop_all_na(rows)
+
+
+# ─────────────────────────────────────────────
+# Glossary — drives the Appendix off rendered row labels
+# ─────────────────────────────────────────────
+#
+# Keyed by the EXACT row label the pipeline emits, so the appendix can be
+# built from the set of labels actually rendered rather than from
+# section-by-section conditionals that drift as metrics are added. Value is
+# (group, definition). A label with no entry here is reported as a
+# GLOSSARY GAP at render time.
+#
+# _GLOSSARY_CORE terms are always emitted -- they appear in cell values,
+# footnotes and column headers rather than as row labels, so no rendered
+# label would ever pull them in.
+
+_GLOSSARY: dict[str, tuple[str, str]] = {}
+
+
+def _g(group: str, entries: dict):
+    for term, defn in entries.items():
+        _GLOSSARY[term] = (group, defn)
+
+
+_g("General", {
+    "GAAP": "Generally Accepted Accounting Principles (US).",
+    "XBRL": "eXtensible Business Reporting Language — the tagged financial data "
+            "filers submit to the SEC; the primary source for this report.",
+    "SEC":  "US Securities and Exchange Commission.",
+    "FY":   "Fiscal Year — the company's own reporting year, which may not align "
+            "with the calendar year.",
+    "TTM":  "Trailing Twelve Months — the most recent four quarters.",
+    "bps":  "Basis points — one hundredth of a percentage point (100bps = 1.00%).",
+    "pp":   "Percentage points — the arithmetic difference between two percentages.",
+    "N/A":  "Not available or not applicable. Where a reason is given in "
+            "parentheses, it states why the figure was not computed.",
+    "YoY":  "Year over Year — change versus the prior fiscal year.",
+    "CAGR": "Compound Annual Growth Rate — the constant annual rate that compounds "
+            "the oldest value to the most recent over the period shown.",
+})
+
+_g("Fundamentals & Profitability", {
+    "Gross Margin":        "Gross profit divided by revenue.",
+    "Net Interest Margin": "Net interest income divided by interest-earning assets "
+                           "(NIM). Replaces gross margin for banks.",
+    "Operating Cost Ratio":"Total operating costs divided by revenue. Replaces gross "
+                           "margin for E&P energy companies, where a lower value is better.",
+    "Net Revenue Margin (≈ Operating Margin)":
+                           "Revenue less total operating costs, divided by revenue. Used "
+                           "for non-asset-based freight brokers, where purchased "
+                           "transportation is not separately tagged.",
+    "Operating Margin":    "Operating income (EBIT) divided by revenue.",
+    "EBITDA Margin":       "EBITDA (earnings before interest, taxes, depreciation and "
+                           "amortisation) divided by revenue.",
+    "Net Margin":          "Net income divided by revenue.",
+    "ROE":                 "Return on Equity — net income divided by average "
+                           "shareholders' equity (opening and closing average).",
+    "ROA":                 "Return on Assets — net income divided by total assets.",
+    "ROIC (proxy)":        "Return on Invested Capital — after-tax operating profit "
+                           "divided by equity plus debt. A proxy: NOPAT is estimated at "
+                           "a flat 79% of operating income.",
+    "ROCE":                "Return on Capital Employed — EBIT divided by total assets "
+                           "less current liabilities.",
+    "Efficiency Ratio":    "Non-interest expense divided by net revenue. A bank cost "
+                           "measure where lower is better.",
+    "ROTCE":               "Return on Tangible Common Equity — net income divided by "
+                           "common equity excluding goodwill and intangibles.",
+    "Asset Turnover":      "Revenue divided by total assets.",
+    "Inv. Turnover":       "Inventory Turnover — cost of goods sold divided by inventory.",
+    "Days Sales of Inv.":  "Days Sales of Inventory (DSI) — average days inventory is "
+                           "held before sale.",
+    "FCF Margin":          "Free Cash Flow (cash from operations less capital "
+                           "expenditure) divided by revenue.",
+    "SBC / Revenue":       "Stock-Based Compensation as a share of revenue. SBC is "
+                           "non-cash equity compensation expense.",
+    "FCF after SBC":       "Free cash flow less stock-based compensation, treating SBC "
+                           "as a real economic cost. GAAP FCF excludes it.",
+    "FCF after SBC Mgn":   "FCF after SBC divided by revenue.",
+    "FFO":                 "Funds From Operations — net income plus real-estate "
+                           "depreciation, less gains on property sales, plus impairments "
+                           "(NAREIT definition). The REIT sector's standard earnings measure.",
+    "FFO Margin":          "FFO divided by revenue.",
+    "AFFO":                "Adjusted Funds From Operations — FFO less straight-line rent, "
+                           "lease amortisation and maintenance capital expenditure, plus "
+                           "non-cash stock compensation and interest. The usual basis for "
+                           "assessing REIT distribution coverage.",
+    "AFFO Margin":         "AFFO divided by revenue.",
+})
+
+_g("Shareholder Returns", {
+    "Dividends Paid":        "Cash dividends paid during the year (financing activities).",
+    "Net Buybacks":          "Share repurchases less proceeds from share issuance "
+                             "(employee plans, option exercises).",
+    "Dividend Yield":        "Dividends paid divided by fiscal-year-end market "
+                             "capitalisation.",
+    "Buyback Yield":         "Net buybacks divided by fiscal-year-end market capitalisation.",
+    "Total Shareholder Yld": "Dividend yield plus buyback yield — total capital returned "
+                             "as a share of market value.",
+    "Payout (% of FCF)":     "Dividends paid as a share of free cash flow.",
+    "Payout (% of AFFO)":    "Dividends paid as a share of AFFO — the REIT distribution "
+                             "base, used because GAAP FCF is distorted by real-estate "
+                             "depreciation.",
+    "Payout (% of Earnings)":"Dividends paid as a share of net income.",
+    "Diluted Share Δ YoY":   "Year-over-year change in the diluted share count. Negative "
+                             "means net buybacks shrank the count.",
+})
+
+_g("Working Capital & Capital Intensity", {
+    "DSO (days)":     "Days Sales Outstanding — accounts receivable divided by revenue, "
+                      "times 365. Average days to collect.",
+    "DIO (days)":     "Days Inventory Outstanding — inventory divided by COGS, times 365.",
+    "DPO (days)":     "Days Payable Outstanding — accounts payable divided by COGS "
+                      "(revenue where no cost-of-sales line is filed), times 365.",
+    "CCC (days)":     "Cash Conversion Cycle — DIO plus DSO less DPO. Days of cash tied "
+                      "up in the operating cycle; negative means suppliers fund it.",
+    "NWC ($)":        "Net Working Capital — current assets less current liabilities.",
+    "NWC / Revenue":  "Net working capital as a share of revenue.",
+    "AR / Revenue":   "Accounts receivable as a share of revenue.",
+    "AP / Revenue":   "Accounts payable as a share of revenue.",
+    "Inv / Revenue":  "Inventory as a share of revenue.",
+    "Inv / Assets":   "Inventory as a share of total assets.",
+    # Keys are the RAW row label as emitted; escaping happens at render time.
+    "PP&E / Assets":  "Property, plant and equipment (net) as a share of total assets.",
+    "CapEx / Revenue":"Capital expenditure as a share of revenue, on magnitude.",
+    "CapEx / CFO":    "Capital expenditure as a share of operating cash flow. Above 100% "
+                      "means capex exceeds the cash the business generates.",
+})
+
+_g("Risk & Solvency", {
+    "Current Ratio":    "Current assets divided by current liabilities.",
+    "Quick Ratio":      "Current assets less inventory, divided by current liabilities.",
+    "D/E Ratio":        "Total debt divided by shareholders' equity.",
+    "Debt/Capital":     "Total debt divided by debt plus equity.",
+    "Net Debt/EBITDA":  "Debt less cash, divided by EBITDA — leverage in years of earnings.",
+    "Interest Coverage":"EBIT divided by interest expense — how many times earnings cover "
+                        "debt service.",
+    "Altman Z-Score":   "A bankruptcy-risk score. Above 2.99 safe, 1.81–2.99 grey, below "
+                        "1.81 distress. Calibrated on manufacturers, so it is suppressed "
+                        "for financials, energy and regulated utilities.",
+})
+
+_g("Capital Adequacy (Banks)", {
+    "Tier 1 Capital":          "Tier 1 capital as a share of risk-weighted assets (RWA). "
+                               "Basel III minimum 6%, 8.5% including the conservation buffer.",
+    "Total Capital":           "Total regulatory capital as a share of RWA. Minimum 8%, "
+                               "10.5% including the buffer.",
+    "T1 Leverage/avg assets":  "Tier 1 capital divided by average total assets. Differs "
+                               "from the Supplementary Leverage Ratio (SLR), which uses a "
+                               "broader exposure denominator.",
+    "CET1":                    "Common Equity Tier 1 ratio — the primary Basel III capital "
+                               "adequacy measure.",
+})
+
+_g("Credit Quality", {
+    "Risk-Free Rate (10Y UST)":  "Yield on the 10-year US Treasury note (source: FRED).",
+    "OAS Credit Spread":         "Option-Adjusted Spread — the credit spread over the "
+                                 "risk-free curve for the issuer's rating tier "
+                                 "(source: ICE BofA via FRED).",
+    "Implied Cost of Debt":      "Risk-free rate plus the OAS credit spread.",
+    "Equity Risk Premium (ERP)": "The excess return investors demand over the risk-free "
+                                 "rate (Damodaran US implied).",
+    "Country Risk Premium (CRP)":"Additional premium for country-specific risk; zero for "
+                                 "US-domiciled issuers.",
+    "Wtd Avg Effective Rate":    "Weighted average effective interest rate across the "
+                                 "filer's debt tranches.",
+    "Total Debt Outstanding":    "Total debt per the filing's debt note.",
+    "Largest Maturity":          "The single largest year of scheduled debt maturities, "
+                                 "shown against enterprise value and total debt.",
+    "Nearest Maturity":          "The earliest year in which debt comes due.",
+})
+
+_g("Valuation", {
+    "Diluted EPS":       "Diluted Earnings Per Share — net income divided by the diluted "
+                         "share count.",
+    "BVPS":              "Book Value Per Share — common equity divided by the diluted "
+                         "share count.",
+    "P/E":               "Price to Earnings — share price divided by diluted EPS.",
+    "P/B":               "Price to Book — share price divided by book value per share.",
+    "P/TBV":             "Price to Tangible Book Value — book value excluding goodwill "
+                         "and intangibles.",
+    "EV/EBITDA":         "Enterprise Value divided by EBITDA.",
+    "EV/Sales":          "Enterprise Value divided by revenue.",
+    "EV/FCF":            "Enterprise Value divided by free cash flow — years of cash flow "
+                         "to pay for the enterprise.",
+    "EV/CFO":            "Enterprise Value divided by operating cash flow.",
+    "FCF/EV":            "Free cash flow as a percentage of enterprise value — a yield.",
+    "CFO/EV":            "Operating cash flow as a percentage of enterprise value.",
+    "CFO/Share":         "Operating cash flow divided by the diluted share count.",
+    "EV/FFO":            "Enterprise Value divided by FFO — the REIT equivalent of EV/EBITDA.",
+    "FFO/EV":            "FFO as a percentage of enterprise value.",
+    "EV/AFFO":           "Enterprise Value divided by AFFO.",
+    "AFFO/EV":           "AFFO as a percentage of enterprise value.",
+    "Diluted Shares":    "Weighted-average diluted share count for the period.",
+    "Shares Outstanding":"Shares outstanding at the latest live snapshot. No historical "
+                         "series is available, so only the Current column is populated.",
+    "YoY Δ":             "Year-over-year change in the row above. Suppressed where the "
+                         "prior value is zero or of the opposite sign, which would make "
+                         "the percentage meaningless.",
+    "EV":                "Enterprise Value — market capitalisation plus debt less cash. "
+                         "Computed at fiscal-year-end price × diluted shares.",
+})
+
+_g("Cost of Capital", {
+    "Beta (yfinance)":        "The stock's sensitivity to market moves, used in CAPM.",
+    "Cost of Equity":         "Risk-free rate plus beta times the equity risk premium (CAPM).",
+    "Cost of Debt":           "Risk-free rate plus the rating-implied credit spread.",
+    "Effective Tax Rate":     "Income tax expense divided by pre-tax income.",
+    "After-tax Cost of Debt": "Cost of debt multiplied by one minus the tax rate.",
+    "Equity Weight":          "Market capitalisation as a share of total capital.",
+    "Debt Weight":            "Total debt as a share of total capital.",
+    "WACC":                   "Weighted Average Cost of Capital — the blended required "
+                              "return across equity and debt.",
+})
+
+# Always emitted: these appear in cell values, footnotes and headers rather
+# than as row labels, so no rendered label would pull them in.
+_GLOSSARY_CORE = ["GAAP", "XBRL", "SEC", "FY", "TTM", "bps", "pp", "N/A",
+                  "YoY", "CAGR"]
+
+# Group display order in the appendix.
+_GLOSSARY_GROUP_ORDER = [
+    "General", "Fundamentals & Profitability", "Shareholder Returns",
+    "Working Capital & Capital Intensity", "Risk & Solvency",
+    "Capital Adequacy (Banks)", "Credit Quality", "Valuation",
+    "Cost of Capital",
+]
+
+# Row labels that carry no definable term -- spacers, sub-row markers and
+# labels whose meaning is the value beside them. Excluded from the gap check
+# rather than given filler definitions.
+_GLOSSARY_IGNORE = {"", "Metric", "—"}
+
+
+def _normalise_label(label: str) -> str:
+    """
+    Reduce a rendered row label to its glossary key.
+
+    Tries the label verbatim first, since most are exact keys. Falls back to
+    stripping the trailing qualifier the renderer appends for context -- a
+    parenthetical ("(min 8.5%)", "(4yr)", "(proxy)"), a bracketed formula
+    ("[RF + β×ERP]"), or the AFFO proxy dagger.
+    """
+    s = str(label).replace("†", "").strip()
+    if s in _GLOSSARY:
+        return s
+    s = re.sub(r"\s*\[[^\]]*\]\s*$", "", s).strip()
+    if s in _GLOSSARY:
+        return s
+    s2 = re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()
+    if s2 in _GLOSSARY:
+        return s2
+    return s
+
+
+def _glossary_for_labels(labels: set, ticker: str = "") -> tuple[dict, list]:
+    """
+    Resolve rendered row labels to glossary entries.
+
+    Returns ({group: [(term, definition)]}, [labels with no entry]). The
+    caller prints the gaps so a metric added without a definition surfaces
+    immediately instead of going silently undefined.
+    """
+    matched: dict = {}
+    gaps: list = []
+
+    def _add(term):
+        group, defn = _GLOSSARY[term]
+        matched.setdefault(group, {})[term] = defn
+
+    for term in _GLOSSARY_CORE:
+        if term in _GLOSSARY:
+            _add(term)
+
+    for raw in sorted(labels):
+        if str(raw).strip() in _GLOSSARY_IGNORE:
+            continue
+        key = _normalise_label(raw)
+        if key in _GLOSSARY:
+            _add(key)
+        else:
+            gaps.append(str(raw))
+
+    ordered = {}
+    for group in _GLOSSARY_GROUP_ORDER:
+        if group in matched:
+            ordered[group] = sorted(matched[group].items())
+    for group in matched:                      # any group not in the order list
+        if group not in ordered:
+            ordered[group] = sorted(matched[group].items())
+    return ordered, gaps
+
+
+def _abbreviations_appendix(styles, rendered_labels: set,
+                            ticker: str = "") -> list:
+    """
+    Build the appendix from the row labels this report actually rendered.
+
+    No sector conditionals: a bank's report never emits an FFO row, so FFO
+    never enters the label set and never reaches the appendix. Adding a
+    metric row automatically adds its definition, and forgetting the
+    definition is reported as a GLOSSARY GAP rather than silently omitted.
+    """
+    groups, gaps = _glossary_for_labels(rendered_labels, ticker)
+    for label in gaps:
+        print(f"[{ticker}] GLOSSARY GAP: no definition for row '{label}'")
+
+    _term_style = ParagraphStyle(
+        "abbrev_term", fontName="Helvetica-Bold", fontSize=7.5,
+        textColor=C_DARK, leading=9.5, alignment=TA_LEFT,
+    )
+    _def_style = ParagraphStyle(
+        "abbrev_def", fontName="Helvetica", fontSize=7.5,
+        textColor=C_DARK, leading=9.5, alignment=TA_LEFT,
+    )
+
+    page_w = A4[0] - 40 * mm
+    term_w = 34 * mm
+    elems = []
+    for title, entries in groups.items():
+        if not entries:
+            continue
+        elems.append(Paragraph(f"<b>{title}</b>", styles["body"]))
+        elems.append(Spacer(1, 1))
+        rows = [[Paragraph(_esc_amp(term), _term_style),
+                 Paragraph(_esc_amp(defn), _def_style)]
+                for term, defn in entries]
+        t = Table(rows, colWidths=[term_w, page_w - term_w])
+        t.setStyle(TableStyle([
+            # Definitions are prose, so the whole table is left-aligned --
+            # _ratio_table centres its data columns, which reads badly here.
+            ("ALIGN",         (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+            ("LINEBELOW",     (0, 0), (-1, -2), 0.25, colors.HexColor("#E0E0E0")),
+            ("ROWBACKGROUNDS",(0, 0), (-1, -1), [C_WHITE, C_LIGHT]),
+        ]))
+        elems.append(t)
+        elems.append(Spacer(1, 6))
+    return elems
 
 
 def _heat_color(rank: int, n_rows: int) -> object:
@@ -372,17 +921,53 @@ _HIGH_SEV_KEYWORDS = (
 )
 
 
+def _parse_rendered_number(v):
+    """
+    Parse a value as the tables render it ("42.81x", "23.73%", "$5.18") back
+    to a float, so a summary figure can be checked against its table
+    counterpart. Returns None for any suppression sentinel ("N/A (pre-split)",
+    "N/A (financials)", "—") rather than a number, so the summary inherits
+    the table's suppression instead of reaching past it.
+    """
+    if isinstance(v, (int, float)):
+        return float(v)
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s or s.startswith("N/A") or s.startswith("—") or s.startswith("DEFINITION"):
+        return None
+    m = re.match(r"^\s*-?\$?\s*(-?[\d,]+(?:\.\d+)?)\s*[x%]?", s)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+    return -val if s.lstrip().startswith("-") and val > 0 else val
+
+
 def _build_exec_summary(ticker, fundamental, valuation, commentary,
                         management_quality, insider_activity, analyst_targets,
                         peer_comparison, periods, track_analysis=None,
-                        risk=None) -> list[str]:
+                        risk=None) -> tuple[list, list]:
     """
-    Returns a list of plain-text bullet strings (no leading '•').
-    Fixed slot order: valuation → fundamentals → management → risk →
-    insider → watch. Slots are omitted when data is unavailable rather
-    than emitting a placeholder.
+    Returns (bullets, checks).
+
+    bullets : plain-text strings (no leading '•'). Fixed slot order:
+              valuation → fundamentals → management → risk → insider →
+              watch. Slots are omitted when data is unavailable rather than
+              emitting a placeholder.
+    checks  : [(name, summary_value, table_value)] for every figure that has
+              a table counterpart, so the caller can assert the two agree.
+
+    Every numeric figure here is read from the SAME agent output dict the
+    corresponding table renders from. The summary previously quoted the
+    yfinance peer-table P/E for the subject while Section 3 showed the
+    XBRL-derived one, so the two disagreed by a wide margin on the page a
+    reader looks at first.
     """
     bullets = []
+    checks: list = []
 
     # ── Slot 1: Valuation posture ──────────────────────────────────────────
     try:
@@ -398,6 +983,22 @@ def _build_exec_summary(ticker, fundamental, valuation, commentary,
         pcts = [p for p in [pe_pct, ev_pct] if p is not None]
         avg_pct = sum(pcts) / len(pcts) if pcts else None
 
+        # Subject P/E read from the same dicts Section 3 renders, so the
+        # summary cannot quote a different number than the table. The peer
+        # median stays on its yfinance basis (that is what the peer table
+        # is), so both bases are named explicitly where they meet.
+        _mr        = periods[0] if periods else None
+        _pe_cur_t  = (valuation or {}).get("pe_current", {}) or {}
+        _pe_hist_t = (valuation or {}).get("pe_historical", {}) or {}
+        pe_cur_xbrl = _parse_rendered_number(_pe_cur_t.get(_mr))
+        pe_fy_xbrl  = _parse_rendered_number(_pe_hist_t.get(_mr))
+        if pe_cur_xbrl is not None:
+            checks.append(("exec.pe_current", pe_cur_xbrl,
+                           _parse_rendered_number(_pe_cur_t.get(_mr))))
+        if pe_fy_xbrl is not None:
+            checks.append(("exec.pe_fy_end", pe_fy_xbrl,
+                           _parse_rendered_number(_pe_hist_t.get(_mr))))
+
         if avg_pct is not None:
             if avg_pct <= 33:
                 valuation_stance = f"trades at a premium to {industry} peers"
@@ -406,26 +1007,30 @@ def _build_exec_summary(ticker, fundamental, valuation, commentary,
             else:
                 valuation_stance = f"trades broadly in line with {industry} peers"
 
-            pe_str = f"P/E {pe_subj:.1f}x vs. peer median {pe_med:.1f}x" \
-                     if pe_subj and pe_med else ""
+            if pe_cur_xbrl is not None and pe_med:
+                pe_str = (f"P/E {pe_cur_xbrl:.1f}x (XBRL basis) vs. peer median "
+                          f"{pe_med:.1f}x (yfinance basis) — see Section 3")
+            elif pe_med:
+                # Subject P/E unavailable or suppressed on the XBRL basis —
+                # report the peer median alone rather than substituting the
+                # yfinance subject figure the table doesn't show.
+                pe_str = f"peer median P/E {pe_med:.1f}x (yfinance basis)"
+            else:
+                pe_str = ""
         else:
-            # Fallback: current vs. FY-end P/E
-            cur_pe  = (valuation or {}).get("pe_current")
-            hist_pe = (valuation or {}).get("pe_fy_end", {})
-            most_recent_pe = hist_pe.get(periods[0]) if periods else None
-            if cur_pe and most_recent_pe:
-                try:
-                    cur_f  = float(str(cur_pe).replace("x",""))
-                    hist_f = float(str(most_recent_pe).replace("x",""))
-                    if cur_f < hist_f * 0.85:
-                        valuation_stance = "trades below recent historical multiples"
-                    elif cur_f > hist_f * 1.15:
-                        valuation_stance = "trades above recent historical multiples"
-                    else:
-                        valuation_stance = "trades in line with recent historical multiples"
-                    pe_str = f"current P/E {cur_f:.1f}x vs. FY-end {hist_f:.1f}x"
-                except Exception:
-                    valuation_stance = pe_str = None
+            # Fallback: current vs. FY-end P/E, both on the XBRL basis.
+            # (This path previously read valuation["pe_fy_end"], a key that
+            # does not exist, and treated pe_current as a scalar when it is
+            # keyed by period — so it could never fire.)
+            if pe_cur_xbrl is not None and pe_fy_xbrl is not None:
+                if pe_cur_xbrl < pe_fy_xbrl * 0.85:
+                    valuation_stance = "trades below recent historical multiples"
+                elif pe_cur_xbrl > pe_fy_xbrl * 1.15:
+                    valuation_stance = "trades above recent historical multiples"
+                else:
+                    valuation_stance = "trades in line with recent historical multiples"
+                pe_str = (f"current P/E {pe_cur_xbrl:.1f}x vs. FY-end "
+                          f"{pe_fy_xbrl:.1f}x (both XBRL basis)")
             else:
                 valuation_stance = pe_str = None
 
@@ -459,25 +1064,44 @@ def _build_exec_summary(ticker, fundamental, valuation, commentary,
         fcf_bullet = next((n for n in narr if "FCF" in n or "cash" in n.lower()), None)
 
         parts = []
-        if cagr_str:
-            parts.append(f"revenue 2-yr CAGR {cagr_str}")
+        if cagr_str and cagr_str != "N/A":
+            # Span was hardcoded as "2-yr" while the Section 1 note reads
+            # "{len(periods)-1}-yr" off the same value — 4-yr for a 5-period
+            # report. Same figure, contradictory label.
+            _yrs = max(len(periods) - 1, 1) if periods else 1
+            parts.append(f"revenue {_yrs}-yr CAGR {cagr_str}")
+            checks.append(("exec.revenue_cagr",
+                           _parse_rendered_number(cagr_str),
+                           _parse_rendered_number(fundamental.get("revenue_cagr"))))
 
-        if gm_bullet:
+        if gm_bullet and "Gross Margin" not in set(
+                fundamental.get("suppressed_metrics", []) or []):
             # Strip the bullet prefix to get a clean clause
             gm_clean = gm_bullet.lstrip("•").strip()
             parts.append(gm_clean[0].lower() + gm_clean[1:].rstrip("."))
 
         # FCF: flag thin or deteriorating margin
+        # Same dict the FCF Margin row renders from. _parse_rendered_number
+        # returns None for the sector-suppression sentinels ("N/A
+        # (financials)"), so the summary inherits the table's suppression
+        # instead of quoting a figure the table deliberately withholds.
+        # Respect the table's sector suppression. FundamentalAgent still
+        # computes fcf_margin for REITs (only financials get an explicit
+        # "N/A (financials)" sentinel), but Section 1 removes the row for
+        # any industry whose _METRIC_SUPPRESSION list names it — REITs show
+        # FFO/AFFO margin instead. Without this gate the summary quoted a
+        # figure the table deliberately withholds.
+        _suppressed = set(fundamental.get("suppressed_metrics", []) or [])
         fcf_vals = fundamental.get("fcf_margin", {})
-        if fcf_vals and periods:
-            try:
-                latest_fcf = float(str(fcf_vals.get(periods[0], "")).replace("%",""))
+        if fcf_vals and periods and "FCF Margin" not in _suppressed:
+            latest_fcf = _parse_rendered_number(fcf_vals.get(periods[0]))
+            if latest_fcf is not None:
                 if latest_fcf < 5:
                     parts.append(f"FCF margin thin at {latest_fcf:.1f}%")
                 elif latest_fcf > 15:
                     parts.append(f"strong FCF margin {latest_fcf:.1f}%")
-            except Exception:
-                pass
+                checks.append(("exec.fcf_margin", latest_fcf,
+                               _parse_rendered_number(fcf_vals.get(periods[0]))))
 
         if parts:
             bullets.append("Fundamentals — " + "; ".join(parts) + ".")
@@ -624,7 +1248,7 @@ def _build_exec_summary(ticker, fundamental, valuation, commentary,
     except Exception:
         pass
 
-    return bullets
+    return bullets, checks
 
 
 # ─────────────────────────────────────────────
@@ -667,6 +1291,20 @@ class EquityBriefRenderer:
         periods = fundamental["periods"]
         story = []
 
+        # ── Rendered-label collection (drives the Appendix) ──────────────────
+        # Every analytical table routes through _emit_table, which records its
+        # row labels. The appendix is then built from that set, so it tracks
+        # what was actually rendered instead of re-deriving the same sector
+        # conditionals a second time. Descriptive tables (peers, price
+        # context, momentum, insider, debt tranches) keep plain _ratio_table:
+        # their first column holds data (years, tickers, tranche names), not
+        # metric terms.
+        _rendered_labels: set = set()
+
+        def _emit_table(header_row, data_rows, **kw):
+            _rendered_labels.update(str(r[0]).strip() for r in data_rows if r)
+            return _ratio_table(header_row, data_rows, **kw)
+
         # ── Cover header table ──
         mc_str  = _fmt_market_cap(profile.market_cap)
         hdr_data = [[
@@ -698,9 +1336,20 @@ class EquityBriefRenderer:
         _ta_avail  = bool((track_analysis or {}).get("available"))
         _own_avail = bool(ownership or fundamental.get("ownership")) or bool(insider_activity)
 
+        # Section 2B renders only for industries with a meaningful operating
+        # working-capital cycle (see _WC_SUPPRESSION in agents.py) and only
+        # when at least one metric resolved — build its rows now so the TOC
+        # links to an anchor that will actually exist.
+        _wc_payload = fundamental.get("working_capital", {}) or {}
+        _wc_rows    = _build_wc_rows(_wc_payload, periods)
+
         _TOC_SECTIONS = [
             ("s1", "1 · Fundamental Analysis"),
             ("s2", "2 · Risk & Solvency"),
+        ]
+        if _wc_rows:
+            _TOC_SECTIONS.append(("s2b", "2B · Working Capital"))
+        _TOC_SECTIONS += [
             ("s3", "3 · Valuation"),
             ("s4", "4 · Red Flags"),
         ]
@@ -712,6 +1361,7 @@ class EquityBriefRenderer:
                 _TOC_SECTIONS.append(("s7", "7 · Management Track Record"))
         if _own_avail:
             _TOC_SECTIONS.append(("s8", "8 · Insider & Institutional Information"))
+        _TOC_SECTIONS.append(("appendix", "Appendix · Abbreviations"))
         toc_parts = "  ·  ".join(
             f'<link href="#{anchor}" color="#2980B9">{title}</link>'
             for anchor, title in _TOC_SECTIONS
@@ -1049,7 +1699,7 @@ class EquityBriefRenderer:
         # Deterministic template — no API call. Pulls from structured outputs
         # already computed elsewhere in the render call. Fixed slot order:
         # valuation → fundamentals → management → primary risk → insider → watch.
-        _exec_bullets = _build_exec_summary(
+        _exec_bullets, _exec_checks = _build_exec_summary(
             ticker         = ticker,
             fundamental    = fundamental,
             valuation      = valuation,
@@ -1062,6 +1712,16 @@ class EquityBriefRenderer:
             track_analysis = track_analysis,
             risk           = risk,
         )
+        # Every summary figure that has a table counterpart is asserted
+        # against it, in the same spirit as the glossary gap check: a future
+        # edit that reintroduces a parallel data path surfaces immediately
+        # instead of silently contradicting the body of the report.
+        for _name, _summary_val, _table_val in _exec_checks:
+            if _summary_val is None or _table_val is None:
+                continue
+            if abs(_summary_val - _table_val) > 0.01:
+                print(f"[{ticker}] SUMMARY CHECK: {_name} "
+                      f"summary={_summary_val} table={_table_val} — MISMATCH")
         if _exec_bullets:
             t_exec_hdr = Table(
                 [[Paragraph("Executive Summary", styles["section"])]],
@@ -1153,11 +1813,59 @@ class EquityBriefRenderer:
             fund_rows.append(
                 ["FCF Margin"] + [fundamental["fcf_margin"].get(p, "N/A") for p in periods]
             )
+            # SBC rows sit in this same branch deliberately: they must be
+            # suppressed exactly where FCF Margin is, and sharing the branch
+            # (plus the _SUPPRESSION_ROW_ALIASES entry below) means there is
+            # one suppression decision, not two that could drift apart.
+            _sbc = fundamental.get("sbc", {}) or {}
+            if _sbc.get("available"):
+                fund_rows.append(
+                    ["SBC / Revenue"]
+                    + [_fmt_pct1(_sbc.get("sbc_pct_revenue", {}).get(p)) for p in periods]
+                )
+                fund_rows.append(
+                    ["FCF after SBC"]
+                    + [_fmt_nwc(_sbc.get("fcf_after_sbc", {}).get(p)) for p in periods]
+                )
+                fund_rows.append(
+                    ["FCF after SBC Mgn"]
+                    + [_fmt_pct1(_sbc.get("fcf_after_sbc_margin", {}).get(p)) for p in periods]
+                )
+
+        # ── Sector-appropriate metric suppression (display-only) ──────────
+        # Removes rows for metrics FundamentalAgent flagged as not
+        # meaningful for this industry (_METRIC_SUPPRESSION in agents.py).
+        # Underlying values are still computed above — only the row is
+        # hidden here. See the "Basis of Omission" footnote block below.
+        suppressed_metrics    = fundamental.get("suppressed_metrics", []) or []
+        suppression_footnotes = fundamental.get("suppression_footnotes", {}) or {}
+        if suppressed_metrics:
+            _suppress_row_labels = set()
+            for m in suppressed_metrics:
+                _alias = _SUPPRESSION_ROW_ALIASES.get(m)
+                if _alias is None:
+                    continue
+                if isinstance(_alias, tuple):
+                    _suppress_row_labels.update(_alias)
+                else:
+                    _suppress_row_labels.add(_alias)
+            fund_rows = [row for row in fund_rows if row[0] not in _suppress_row_labels]
+
         # Add revenue CAGR as a single merged row note
         cagr_note = f"Revenue {len(periods)-1}-yr CAGR: {fundamental.get('revenue_cagr', 'N/A')}"
-        story.append(_ratio_table(fund_header, _drop_all_na(fund_rows)))
+        _fund_rows_shown = _drop_all_na(fund_rows)
+        story.append(_emit_table(fund_header, _fund_rows_shown))
         story.append(Spacer(1, 2))
         story.append(Paragraph(cagr_note, styles["meta"]))
+        # SBC footnote — only when those rows actually survived both the
+        # sector suppression and the all-N/A drop.
+        if any(r[0] == "SBC / Revenue" for r in _fund_rows_shown):
+            story.append(Paragraph(
+                "FCF after SBC treats stock compensation as a real economic "
+                "cost. GAAP FCF above excludes it. Analysts differ on this "
+                "treatment; both are shown.",
+                styles["meta"]
+            ))
         if sg == "real_estate" and fundamental.get("ffo_available"):
             _ffo_note = (
                 "FFO = Net Income + Real Estate D&A − Gains on Sale of RE + Impairment "
@@ -1172,6 +1880,66 @@ class EquityBriefRenderer:
                     "AFFO uses total CapEx as a conservative proxy."
                 )
             story.append(Paragraph(_ffo_note, styles["meta"]))
+
+        # ── Shareholder Returns sub-block ──
+        # Dollars and payout ratios come from FundamentalAgent; the three
+        # yield rows and the share-count change come from ValuationAgent,
+        # which owns the FY-end market cap and the split/unit-anomaly
+        # suppression those rows must honour.
+        _sr  = fundamental.get("shareholder_returns", {}) or {}
+        _sry = (valuation.get("shareholder_yields", {}) or {})
+        if _sr.get("available"):
+            def _sr_row(label, series, fmt):
+                return [label] + [fmt(series.get(p)) for p in periods]
+
+            _basis = _sr.get("payout_basis", "FCF")
+            sr_rows = [
+                _sr_row("Dividends Paid", _sr.get("dividends_paid", {}), _fmt_nwc),
+                _sr_row("Net Buybacks",   _sr.get("net_buyback", {}),    _fmt_nwc),
+                _sr_row("Dividend Yield", _sry.get("dividend_yield", {}), _fmt_pct2),
+                _sr_row("Buyback Yield",  _sry.get("buyback_yield", {}),  _fmt_pct2),
+                _sr_row("Total Shareholder Yld", _sry.get("total_yield", {}), _fmt_pct2),
+                # When the basis IS earnings (financials), the dedicated
+                # earnings row below already carries it -- don't print the
+                # same series twice under two labels.
+                *([] if _basis == "Earnings" else
+                  [_sr_row(f"Payout (% of {_basis})",
+                           _sr.get("payout_ratio_fcf", {}), _fmt_pct1)]),
+                _sr_row("Payout (% of Earnings)",
+                        _sr.get("payout_ratio_earnings", {}), _fmt_pct1),
+                _sr_row("Diluted Share Δ YoY",
+                        _sry.get("share_change_yoy", {}), _fmt_signed_pct1),
+            ]
+            sr_rows = _drop_all_na(sr_rows)
+            if sr_rows:
+                story.append(Spacer(1, 4))
+                t_sr = Table(
+                    [[Paragraph("Shareholder Returns", styles["section"])]],
+                    colWidths=["100%"]
+                )
+                t_sr.setStyle(TableStyle([
+                    ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#2C3E50")),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+                ]))
+                story.append(t_sr)
+                story.append(Spacer(1, 1))
+                story.append(_emit_table(fund_header, sr_rows))
+                story.append(Spacer(1, 2))
+                _sr_note = (
+                    "Net Buybacks = share repurchases less equity issuance "
+                    "(employee plans, option exercises). Yields are computed "
+                    "against FY-end market cap (FY-end price × diluted shares), "
+                    "the same basis as EV elsewhere in this report."
+                )
+                if _basis == "AFFO":
+                    _sr_note += (
+                        " Payout is shown against AFFO rather than FCF: AFFO is "
+                        "the NAREIT distribution base for REITs, and GAAP FCF is "
+                        "distorted by real-estate depreciation for this sector."
+                    )
+                story.append(Paragraph(_sr_note, styles["meta"]))
 
         # Operating leverage rows (suppress for financials)
         ol = fundamental.get("operating_leverage", {})
@@ -1203,7 +1971,7 @@ class EquityBriefRenderer:
                 ["Total Capital  (min 10.5%)"]   + [basel.get(p, {}).get("total_capital", "N/A") for p in periods],
                 ["T1 Leverage/avg assets  (min 4%)"]  + [basel.get(p, {}).get("lev_ratio",     "N/A") for p in periods],
             ]
-            story.append(_ratio_table(b_header, _drop_all_na(b_rows)))
+            story.append(_emit_table(b_header, _drop_all_na(b_rows)))
             story.append(Spacer(1, 2))
             story.append(Paragraph(
                 "Source: FR Y-9C Schedule HC-R (FFIEC bulk data).  "
@@ -1223,6 +1991,23 @@ class EquityBriefRenderer:
                 "(on + off-balance-sheet exposures), producing a lower figure (~5.5-6.0% vs ~6.5-7.0%).",
                 styles["meta"]
             ))
+
+        # ── Basis of Omission (only when metrics were suppressed above) ──
+        if suppression_footnotes:
+            story.append(Spacer(1, 4))
+            story.append(HRFlowable(
+                width="100%", thickness=0.5, color=C_GREY,
+                spaceBefore=0, spaceAfter=3,
+            ))
+            story.append(Paragraph("<i>Basis of Omission</i>", styles["meta"]))
+            # Group metrics that share identical footnote text to avoid repetition
+            _groups: dict[str, list] = {}
+            for _metric, _text in suppression_footnotes.items():
+                _groups.setdefault(_text, []).append(_metric)
+            for _text, _metrics in _groups.items():
+                story.append(Paragraph(
+                    f"<b>{', '.join(_metrics)}</b> — {_text}", styles["meta"]
+                ))
 
         story.append(Spacer(1, 6))
 
@@ -1254,7 +2039,7 @@ class EquityBriefRenderer:
         risk_rows.append(
             ["Interest Coverage"] + [risk["interest_coverage"].get(p, "N/A") for p in periods]
         )
-        story.append(_ratio_table(risk_header, _drop_all_na(risk_rows)))
+        story.append(_emit_table(risk_header, _drop_all_na(risk_rows)))
 
         # Altman Z (most recent only; suppress for financials and energy)
         z_val = risk["altman_z"].get(periods[0], "N/A") if periods else "N/A"
@@ -1272,6 +2057,13 @@ class EquityBriefRenderer:
             ))
         if risk.get("de_trend_note"):
             story.append(Paragraph(f"Leverage trend: {risk['de_trend_note']}", styles["meta"]))
+        # Derived interest-expense estimate, shown only when the filed line
+        # didn't resolve while debt is outstanding (see RiskAgent guard).
+        if risk.get("est_interest_expense"):
+            story.append(Paragraph(
+                f"Est. Interest Expense: {risk['est_interest_expense']}",
+                styles["meta"]
+            ))
 
         # ── Credit Quality (sub-section within Risk & Solvency) ──
         cq = risk.get("credit_quality", {})
@@ -1339,7 +2131,7 @@ class EquityBriefRenderer:
 
             if cq.get("nearest_maturity") and cq["nearest_maturity"] != "N/A":
                 cq_rows.append(["Nearest Maturity", cq["nearest_maturity"]])
-            story.append(_ratio_table(cq_rows[0], cq_rows[1:]))
+            story.append(_emit_table(cq_rows[0], cq_rows[1:]))
             story.append(Spacer(1, 2))
 
             # ── Debt schedule: top 5 tranches (when available) ──
@@ -1524,6 +2316,34 @@ class EquityBriefRenderer:
 
         story.append(Spacer(1, 6))
 
+        # ── Section 2B: Working Capital & Capital Intensity ──
+        # Rows were built before the TOC (see _wc_rows above). Suppressed
+        # entirely for banks, insurers and REITs — no operating working-
+        # capital cycle — and for any ticker where nothing resolved.
+        if _wc_rows:
+            story += _section_header(
+                "2B · Working Capital &amp; Capital Intensity", styles, anchor="s2b"
+            )
+            wc_header = ["Metric"] + [_short_period(p) for p in periods]
+            story.append(_emit_table(wc_header, _wc_rows))
+            story.append(Spacer(1, 2))
+            story.append(Paragraph(
+                "DSO = AR / Revenue × 365. DPO = AP / COGS × 365 (revenue basis "
+                "where no cost-of-sales line is filed). DIO = Inventory / COGS × 365. "
+                "CCC = DIO + DSO − DPO. NWC = Current Assets − Current Liabilities. "
+                "CapEx shown on magnitude (sign convention varies by filer).",
+                styles["meta"]
+            ))
+            if _wc_payload.get("mode") == "partial":
+                story.append(Paragraph(
+                    "Inventory metrics (DIO, Inv / Revenue, Inv / Assets) omitted — "
+                    "this industry either carries no trade inventory or holds "
+                    "commodity inventory whose turnover does not describe a "
+                    "working-capital cycle. CCC is therefore DSO − DPO.",
+                    styles["meta"]
+                ))
+            story.append(Spacer(1, 6))
+
         # ── Section 3: Valuation ──
         story += _section_header("3 · Valuation", styles, anchor="s3")
 
@@ -1553,7 +2373,8 @@ class EquityBriefRenderer:
             if isinstance(v, str):
                 return v
             if isinstance(v, (int, float)):
-                return f"${v:.2f}"
+                # Sign outside the currency symbol: "-$1.23", not "$-1.23".
+                return f"-${abs(v):.2f}" if v < 0 else f"${v:.2f}"
             return "N/A"
 
         def _fmt_shares_val(v):
@@ -1571,22 +2392,40 @@ class EquityBriefRenderer:
             return ([label, fmt_fn(d.get("current"))]
                    + [fmt_fn(by_period.get(p)) for p in periods])
 
-        # Build valuation rows dynamically
-        val_rows = []
-        val_rows.append(
+        # Build valuation rows dynamically.
+        # Rows are tagged (row, is_sub) so the YoY Δ / CAGR annotation rows
+        # added under the non-multiple metrics keep their smaller indented
+        # style after _drop_all_na renumbers the list.
+        _val_tagged: list = []
+
+        def _add_val_row(row, is_sub=False):
+            _val_tagged.append((row, is_sub))
+
+        def _add_metric_with_trend(label, key, fmt_fn, trend_key):
+            """A yield/per-share metric row plus its YoY Δ and CAGR sub-rows."""
+            _add_val_row(_ev_yield_row(label, key, fmt_fn))
+            for sub in _trend_subrows(valuation.get(trend_key, {}), periods):
+                _add_val_row(sub, is_sub=True)
+
+        # EPS and BVPS are the denominators of the two multiples that follow
+        # them; both are non-multiple metrics, so they get the same YoY/CAGR
+        # annotation treatment as the other per-share rows.
+        _add_metric_with_trend("Diluted EPS", "eps", _fmt_dollar_val, "eps_trend")
+        _add_val_row(
             ["P/E", valuation["pe_current"].get(curr_p, "N/A")]
             + [valuation["pe_historical"].get(p, "N/A") for p in periods]
         )
-        val_rows.append(
+        _add_metric_with_trend("BVPS", "bvps", _fmt_dollar_val, "bvps_trend")
+        _add_val_row(
             ["P/B", valuation["pb_current"].get(curr_p, "N/A")]
             + [valuation["pb_historical"].get(p, "N/A") for p in periods]
         )
         if sg != "financials":
-            val_rows.append(
+            _add_val_row(
                 ["EV/EBITDA", valuation.get("ev_ebitda_current", {}).get(curr_p, "N/A")]
                 + [valuation["ev_ebitda"].get(p, "N/A") for p in periods]
             )
-        val_rows.append(
+        _add_val_row(
             ["EV/Sales", valuation.get("ev_sales_current", {}).get(curr_p, "N/A")]
             + [valuation["ev_sales"].get(p, "N/A") for p in periods]
         )
@@ -1595,21 +2434,32 @@ class EquityBriefRenderer:
         # string rather than hiding the row, since CapEx/FCF are non-core
         # for banks/insurers. EV/CFO, CFO/EV ARE meaningful for financials
         # (operating cash flow is a real figure), so always shown.
-        val_rows.append(_ev_yield_row("EV/FCF", "ev_fcf", _fmt_x_val))
-        val_rows.append(_ev_yield_row("EV/CFO", "ev_cfo", _fmt_x_val))
-        val_rows.append(_ev_yield_row("FCF/EV", "fcf_ev", _fmt_pct_val))
-        val_rows.append(_ev_yield_row("CFO/EV", "cfo_ev", _fmt_pct_val))
-        val_rows.append(_ev_yield_row("CFO/Share", "cfo_per_share", _fmt_dollar_val))
+        _add_val_row(_ev_yield_row("EV/FCF", "ev_fcf", _fmt_x_val))
+        _add_val_row(_ev_yield_row("EV/CFO", "ev_cfo", _fmt_x_val))
+        # FCF/EV, CFO/EV and CFO/Share are yields and per-share cash figures,
+        # not point-in-time multiples — they carry YoY Δ and CAGR annotations.
+        _add_metric_with_trend("FCF/EV", "fcf_ev", _fmt_pct_val, "fcf_ev_trend")
+        _add_metric_with_trend("CFO/EV", "cfo_ev", _fmt_pct_val, "cfo_ev_trend")
+        _add_metric_with_trend("CFO/Share", "cfo_per_share", _fmt_dollar_val,
+                               "cfo_share_trend")
         if sg == "real_estate":
             # FFO/AFFO-based multiples replace the suppressed CFO/EV, EV/CFO
             # (see REIT footnote below) as the sector-appropriate cash yield.
-            val_rows.append(_ev_yield_row("EV/FFO", "ev_ffo", _fmt_x_val))
-            val_rows.append(_ev_yield_row("FFO/EV", "ffo_ev", _fmt_pct_val))
-            val_rows.append(_ev_yield_row("EV/AFFO", "ev_affo", _fmt_x_val))
-            val_rows.append(_ev_yield_row("AFFO/EV", "affo_ev", _fmt_pct_val))
-        val_rows.append(_ev_yield_row("Diluted Shares", "diluted_shares", _fmt_shares_val))
-        val_rows.append(_ev_yield_row("Shares Outstanding", "shares_outstanding", _fmt_shares_val))
-        story.append(_ratio_table(val_header, _drop_all_na(val_rows)))
+            _add_val_row(_ev_yield_row("EV/FFO", "ev_ffo", _fmt_x_val))
+            _add_metric_with_trend("FFO/EV", "ffo_ev", _fmt_pct_val, "ffo_ev_trend")
+            _add_val_row(_ev_yield_row("EV/AFFO", "ev_affo", _fmt_x_val))
+            _add_metric_with_trend("AFFO/EV", "affo_ev", _fmt_pct_val, "affo_ev_trend")
+        _add_val_row(_ev_yield_row("Diluted Shares", "diluted_shares", _fmt_shares_val))
+        _add_val_row(_ev_yield_row("Shares Outstanding", "shares_outstanding", _fmt_shares_val))
+
+        # Drop all-N/A rows, then recompute the sub-row indices against the
+        # surviving list. A suppressed metric row (e.g. FCF/EV for banks)
+        # takes its annotation rows with it — their cells are all "—" too.
+        _val_kept  = [(r, s) for (r, s) in _val_tagged
+                      if not all(_is_na_cell(c) for c in r[1:])]
+        val_rows   = [r for r, _ in _val_kept]
+        _val_subs  = {i for i, (_, s) in enumerate(_val_kept) if s}
+        story.append(_emit_table(val_header, val_rows, sub_rows=_val_subs))
         story.append(Spacer(1, 2))
 
         cp_str = f"${valuation.get('current_price', 0):.2f}" if valuation.get("current_price") else "N/A"
@@ -1623,6 +2473,75 @@ class EquityBriefRenderer:
             "EV computed at FY-end price × shares + debt − cash.",
             styles["meta"]
         ))
+        # ── Share-count anomaly footnotes ──
+        # Three classes, three notes. A unit error is repaired in place, so
+        # its note explains a restatement rather than a suppression; a
+        # split and an unclassified break are both suppressions.
+        _split = valuation.get("split_contamination", {}) or {}
+        _corrections = _split.get("corrections") or {}
+        if _corrections:
+            for _p, _c in sorted(_corrections.items()):
+                story.append(Paragraph(
+                    f"FY{str(_p)[:4]} share count restated ×{_c['scale']:,} — "
+                    f"as-filed value ({_c['raw']:,.0f}) appears tagged in "
+                    f"{'thousands' if _c['scale'] == 1000 else 'millions'} rather "
+                    f"than units; per-share and EV metrics for that year are "
+                    f"computed on the restated count ({_c['corrected']:,.0f}).",
+                    styles["meta"]
+                ))
+        _unknown_periods = [p for p in _split.get("periods", [])
+                            if (_split.get("classes") or {}).get(p) == "unknown"]
+        if _unknown_periods:
+            _ratios = _split.get("ratios") or {}
+            for _p in _unknown_periods:
+                _r = _ratios.get(_p)
+                _r_str = f"{_r:,.4g}×" if isinstance(_r, (int, float)) else "an unclassified"
+                story.append(Paragraph(
+                    f"FY{str(_p)[:4]} suppressed — share count discontinuity of "
+                    f"{_r_str} could not be classified as either a split or a "
+                    f"unit-tagging error; per-share and EV metrics for that year "
+                    f"are withheld rather than published on an unverified basis.",
+                    styles["meta"]
+                ))
+        _presplit_periods = [p for p in _split.get("periods", [])
+                             if (_split.get("classes") or {}).get(p) != "unknown"]
+        if _presplit_periods:
+            _fy_list = ", ".join(f"FY{str(p)[:4]}" for p in _presplit_periods)
+            _factor  = _split.get("factor")
+            _dirn    = _split.get("direction") or "split"
+            _before  = str(_split.get("before") or "")[:4]
+            _after   = str(_split.get("after") or "")[:4]
+            _when    = (f"between FY{_before} and FY{_after}"
+                        if _before and _after else "within this window")
+            # Unit-tagging errors are classified out and repaired before
+            # reaching here (see the restatement note above), so a step that
+            # survives to this point is a split the as-filed count predates
+            # and can be named as one.
+            _factor_str = (
+                f"A {_factor:g}-for-1 {_dirn} occurred {_when}."
+                if _factor else
+                f"A {_dirn} occurred {_when}."
+            )
+            story.append(Paragraph(
+                f"{_fy_list} per-share and EV metrics suppressed — share count is "
+                f"as-filed (never retroactively adjusted) while prices are "
+                f"split-adjusted. {_factor_str} "
+                f"Margins, returns, turnover and other non-per-share metrics for "
+                f"{_fy_list} are unaffected and are shown normally.",
+                styles["meta"]
+            ))
+        if _val_subs:
+            story.append(Paragraph(
+                "<i>YoY Δ</i> and <i>CAGR</i> rows annotate the non-multiple metrics only "
+                "(FCF/EV, CFO/EV, CFO/Share, and FFO/EV, AFFO/EV for REITs) — the "
+                "multiples above are point-in-time valuations, not growth series. "
+                "YoY Δ = change vs. the prior fiscal year, suppressed where the prior "
+                "value is zero or of the opposite sign (a negative base makes a "
+                "percentage change meaningless). CAGR is the compound annual rate from "
+                "the oldest to the most recent fiscal year shown, computed only from a "
+                "positive base and only where at least three years resolve.",
+                styles["meta"]
+            ))
         if sg == "real_estate":
             story.append(Paragraph(
                 "CFO/EV, EV/CFO, and CFO/Share suppressed for REITs. GAAP CFO includes "
@@ -1676,7 +2595,7 @@ class EquityBriefRenderer:
                 ["Debt Weight",
                  _pct_str(wacc_data.get("weight_debt"))],
             ]
-            story.append(_ratio_table(wacc_rows[0], wacc_rows[1:]))
+            story.append(_emit_table(wacc_rows[0], wacc_rows[1:]))
             story.append(Spacer(1, 2))
             wacc_val = wacc_data.get("wacc")
             wacc_str = _pct_str(wacc_val)
@@ -1719,14 +2638,43 @@ class EquityBriefRenderer:
 
             industry = peer_comparison.get("industry", "")
             peer_tickers = peer_comparison.get("peer_tickers", [])
-            n_peers  = len(peer_tickers)
+            _dropped   = peer_comparison.get("dropped", []) or []
+            _n_valid   = peer_comparison.get("n_valid", len(peer_tickers))
+            _n_derived = peer_comparison.get("n_derived", len(peer_tickers))
+            _basis     = peer_comparison.get("peer_basis", "peer_set")
+            _basis_lbl = ("industry median (constituent set widened — too few "
+                          "peers survived validation)"
+                          if _basis == "industry_median" else "peer set")
             story.append(Paragraph(
-                f"Industry: {industry}  |  {n_peers} peers "
-                f"({', '.join(peer_tickers)})  "
+                f"Industry: {industry}  |  {_n_valid} valid peers of "
+                f"{_n_derived} derived ({len(_dropped)} dropped)  |  "
+                f"basis: {_basis_lbl}<br/>"
+                f"Peers: {', '.join(peer_tickers)}  "
                 f"(source: {peer_comparison.get('peer_source', '')})",
                 styles["body"]
             ))
             story.append(Spacer(1, 2))
+            if _dropped:
+                _drop_str = "; ".join(f"{p} — {r}" for p, r in _dropped)
+                story.append(Paragraph(
+                    f"<b>Dropped from the peer set:</b> {_drop_str}. "
+                    f"A name is dropped when it does not resolve to a live "
+                    f"listing, when it is not registered with the SEC, or when "
+                    f"it files no US-GAAP XBRL data. The last case removes "
+                    f"genuine competitors that list outside the US (for example "
+                    f"Asian semiconductor or electronics names, which may hold "
+                    f"an SEC registration but report under IFRS). The table "
+                    f"itself is built from yfinance for every name including the "
+                    f"subject, so such a peer does have quoted figures — but "
+                    f"they cannot be reconciled against this report's own "
+                    f"XBRL-derived numbers, and secondary or foreign listings "
+                    f"frequently carry currency- and convention-mismatched "
+                    f"fields that distort a small-sample median. They are "
+                    f"excluded to keep the median comparable, not judged "
+                    f"irrelevant as competitors.",
+                    styles["meta"]
+                ))
+                story.append(Spacer(1, 2))
 
             _METRIC_LABELS = {
                 "pe_trailing": "P/E (trailing)",
@@ -1994,7 +2942,27 @@ class EquityBriefRenderer:
 
             # ── Section 7: Management Track Record ──
             ta = track_analysis or {}
-            if ta.get("available"):
+            # Number of guidance-vs-actual comparisons actually made. With
+            # none, the whole scoring apparatus below has nothing to score,
+            # and rendering it fills a page to report an absence.
+            _ta_quarters = ta.get("quarters", []) or []
+            _ta_comparisons = sum(
+                1
+                for _q in _ta_quarters
+                for _k in ("revenue", "eps", "gross_margin")
+                if (_q.get(_k) or {}).get("outcome")
+            )
+            if ta.get("available") and _ta_comparisons == 0:
+                story += _section_header("7 · Management Track Record", styles, anchor="s7")
+                story.append(Paragraph(
+                    f"<b>Management Track Record:</b> insufficient guidance "
+                    f"history ({_ta_comparisons} comparisons across "
+                    f"{len(_ta_quarters)} quarters). Scoring resumes once 4+ "
+                    f"quarters of guidance vs. actuals are available.",
+                    styles["body"]
+                ))
+                story.append(Spacer(1, 6))
+            elif ta.get("available"):
                 story += _section_header("7 · Management Track Record", styles, anchor="s7")
 
                 # ── Composite Management Quality Score ────────────────────
@@ -2092,14 +3060,32 @@ class EquityBriefRenderer:
                         else "#E67E22" if cred >= 45
                         else "#E74C3C"
                     )
+                # Attribution counts external-macro vs internal-execution
+                # LANGUAGE in the transcripts, not outcomes of guidance
+                # misses -- so it can be non-zero with zero comparisons,
+                # where it reads as if misses had been attributed when none
+                # were measured. Shown only when there is something to
+                # attribute, and labelled for what it actually counts.
+                _attr_str = ""
+                if _ta_comparisons > 0 and (ext_pct or int_pct):
+                    _attr_str = (f"  &nbsp;&nbsp;Miss language: "
+                                 f"{ext_pct:.0f}% external / "
+                                 f"{int_pct:.0f}% internal")
                 story.append(Paragraph(
                     f"<b>Credibility Score:</b> "
                     f"<font color='{cred_color}'><b>{cred_str}</b></font>  "
-                    f"&nbsp;&nbsp;Trend: <b>{trend.title()}</b>  "
-                    f"&nbsp;&nbsp;Attribution: "
-                    f"{ext_pct:.0f}% external / {int_pct:.0f}% internal",
+                    f"&nbsp;&nbsp;Trend: <b>{trend.title()}</b>"
+                    f"{_attr_str}",
                     styles["body"]
                 ))
+                if _attr_str:
+                    story.append(Paragraph(
+                        "Miss language is the share of external-macro vs. "
+                        "internal-execution wording in management's own "
+                        "explanations across the quarters analysed — a measure "
+                        "of how misses are framed, not of what caused them.",
+                        styles["meta"]
+                    ))
                 if cred_note:
                     story.append(Paragraph(
                         f"<i>Note: {cred_note}</i>",
@@ -2483,7 +3469,17 @@ class EquityBriefRenderer:
             if avg_sell_price is not None:
                 summary_header.append("Avg Sell")
                 summary_row.append(f"${avg_sell_price:,.2f}")
-            story.append(_ratio_table(summary_header, [summary_row]))
+            # Explicit widths: _ratio_table's default reserves 55mm for a
+            # label column, but col 0 here is a short window ("90d"), which
+            # starved the currency columns and split values mid-number
+            # ("-$410,446,40 1"). Give col 0 what it needs and share the
+            # rest evenly so the widest amount fits on one line.
+            _sum_page_w = A4[0] - 40 * mm
+            _sum_rest   = (_sum_page_w - 18 * mm) / max(len(summary_header) - 1, 1)
+            story.append(_ratio_table(
+                summary_header, [summary_row],
+                col_widths=[18 * mm] + [_sum_rest] * (len(summary_header) - 1),
+            ))
             story.append(Spacer(1, 3))
 
             if cluster:
@@ -2546,12 +3542,17 @@ class EquityBriefRenderer:
             # go through _cell() as usual. Same pattern as the maturity wall
             # table above.
             txn_page_w     = A4[0] - 40 * mm
-            txn_col_widths = [16*mm, 23*mm, 27*mm, 16*mm, 16*mm, 18*mm, 14*mm, 18*mm, 22*mm]
+            # Date widened from 16mm: a 10-character ISO date needs ~15mm of
+            # text plus 8mm of padding, so it was breaking mid-value
+            # ("2026-06-1 8"). The width taken back comes from Position and
+            # the numeric columns, which are the fields that SHOULD wrap.
+            # Sums to the full 170mm content width.
+            txn_col_widths = [22*mm, 23*mm, 24*mm, 15*mm, 15*mm, 17*mm, 13*mm, 17*mm, 24*mm]
             txn_wrapped_header = [Paragraph(str(c), _CELL_STYLE_HEADER)
                                   for c in txn_header]
             txn_wrapped_data = [
                 [
-                    _cell(row[0]),
+                    _cell_nowrap(row[0]),   # date — atomic, never split
                     _cell(row[1]),
                     _cell(row[2]),
                     row[3],   # pre-built colored Paragraph — do not re-wrap
@@ -2674,6 +3675,22 @@ class EquityBriefRenderer:
                 "<i>No short interest data available for this ticker.</i>",
                 styles["meta"]
             ))
+
+        # ── Appendix: abbreviations ──
+        # Always rendered: every report uses abbreviations somewhere. Content
+        # is gated to the sections this particular report produced, so a bank
+        # gets the NIM/CET1 terms and a REIT gets FFO/AFFO, not both.
+        story.append(PageBreak())
+        story += _section_header("Appendix · Abbreviations &amp; Definitions",
+                                 styles, anchor="appendix")
+        story.append(Paragraph(
+            "Terms as used in this report. Definitions describe this "
+            "pipeline's specific calculation where it differs from the "
+            "general textbook meaning.",
+            styles["meta"]
+        ))
+        story.append(Spacer(1, 4))
+        story += _abbreviations_appendix(styles, _rendered_labels, ticker)
 
         # ── Build PDF ──
         doc = SimpleDocTemplate(

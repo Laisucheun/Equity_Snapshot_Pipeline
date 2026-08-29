@@ -1180,27 +1180,57 @@ _IS_WATERFALL = [
         "InvestmentIncomeInterestAndDividend",
         "InterestAndDividendIncomeSecurities",
     ], "USD"),
+    # Ordered income-statement interest expense FIRST, cash-paid-interest
+    # supplementals LAST. Previously "InterestPaidNet" led this list, which
+    # is a cash-flow supplemental disclosure, not the P&L line -- and
+    # _resolve_waterfall commits to the first candidate that has a value for
+    # ANY requested period, so a filer who tags InterestPaidNet in older
+    # years but stops (or never tags it for the latest year) had interest
+    # expense silently resolve to zero for the most recent period while a
+    # fully-populated InterestExpenseNonoperating row sat further down the
+    # list, unreached. That produced "No int. exp." on companies carrying
+    # billions in debt. Affects any filer with that tagging pattern, not one
+    # ticker.
+    #
+    # Amortization/write-off concepts are financing costs but not interest
+    # expense; they stay at the very bottom as last-resort proxies only.
+    #
+    # Deliberately NOT included: InterestCostsCapitalized. Capitalized
+    # interest is the portion of interest cost EXCLUDED from expense (it is
+    # added to the asset's carrying value), so using it as an interest-
+    # expense fallback would report the opposite of the intended figure --
+    # materially so for utilities and other filers with large construction
+    # programmes. InterestCostsIncurred (total cost before capitalization)
+    # IS included as a conservative upper-bound proxy.
     ("InterestExpense", [
-        "InterestPaidNet",
         "InterestExpense",
-        "GainsLossesOnExtinguishmentOfDebt",
         "InterestExpenseNonoperating",
-        "AmortizationOfFinancingCosts",
-        "AmortizationOfDebtDiscountPremium",
-        "AmortizationOfFinancingCostsAndDiscounts",
+        "InterestExpenseDebt",
+        "InterestExpenseBorrowings",
+        "InterestAndDebtExpense",
         "InterestIncomeExpenseNonoperatingNet",
         "InterestExpenseOperating",
         "FinanceCosts",
-        "InterestPaid",
-        "InterestExpenseDebt",
         "InterestExpenseOther",
-        "InterestAndDebtExpense",
         "InterestExpenseRelatedParty",
-        "InterestExpenseBorrowings",
-        "WriteOffOfDeferredDebtIssuanceCost",
-        "InterestPaidCapitalized",
         "InterestExpenseSubordinatedNotesAndDebentures",
         "InterestExpenseShortTermBorrowings",
+        "InterestCostsIncurred",
+        # Net interest income/expense -- a bank concept where the value can
+        # be net INCOME rather than expense. Last-resort only; the sectors
+        # that file it suppress interest coverage anyway (see RiskAgent).
+        "InterestIncomeExpenseNet",
+        # Cash-paid-interest supplementals: correct order of magnitude but
+        # a cash figure, not the accrual P&L line. Demoted from the top.
+        "InterestPaidNet",
+        "InterestPaid",
+        # Not interest expense; retained only so something resolves rather
+        # than nothing for filers that tag none of the above.
+        "GainsLossesOnExtinguishmentOfDebt",
+        "AmortizationOfFinancingCosts",
+        "AmortizationOfDebtDiscountPremium",
+        "AmortizationOfFinancingCostsAndDiscounts",
+        "WriteOffOfDeferredDebtIssuanceCost",
     ], "USD"),
     ("InterestExpenseDeposits", [
         "InterestExpenseDeposits",
@@ -2320,6 +2350,9 @@ _BS_WATERFALL = [
         "AccruedRoyaltiesCurrentAndNoncurrent",
         "BusinessCombinationRecognizedIdentifiableAssetsAcquiredAndLiabilitiesAssumedCurrentLiabilitiesAccountsPayable",
         "OilAndGasSalesPayableCurrent",
+        # IFRS-style label variant, last resort — the us-gaap/IFRS concept
+        # this pipeline normally lands on is TradeAndOtherCurrentPayables above.
+        "TradeAndOtherPayablesCurrent",
     ], "USD"),
     ("TradeReceivables", [
         "AccountsReceivableNetCurrent",
@@ -2342,6 +2375,9 @@ _BS_WATERFALL = [
         "ReceivablesLongTermContractsOrPrograms",
         "OilAndGasJointInterestBillingReceivablesCurrent",
         "ContractWithCustomerAssetAccumulatedAllowanceForCreditLoss",
+        # IFRS-style label variant, last resort — the us-gaap/IFRS concept
+        # this pipeline normally lands on is TradeAndOtherCurrentReceivables above.
+        "TradeAndOtherReceivablesNetCurrent",
     ], "USD"),
     ("TreasuryShares", [
         "TreasuryStockValue",
@@ -2669,17 +2705,33 @@ _CF_WATERFALL = [
         "AdjustmentsForSharebasedPayments",
         "EmployeeServiceShareBasedCompensationAllocationOfRecognizedPeriodCostsCapitalizedAmount",
     ], "USD"),
+    # Equity issuance proceeds. Common-stock issuance and share-plan
+    # proceeds lead -- for most filers the recurring issuance line is
+    # employee share plans / option exercises, which is the figure that
+    # nets against buybacks. Extended rather than given a separate
+    # "ShareIssuance" label, for the same reason as the repurchase row.
     ("StockIssuanceProceeds", [
+        "ProceedsFromIssuanceOfCommonStock",
         "ProceedsFromStockOptionsExercised",
+        "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans",
         "ProceedsFromIssuanceOfPreferredStockAndPreferenceStock",
         "ProceedsFromStockPlans",
         "ProceedsFromIssuingShares",
         "ProceedsFromIssuanceOrSaleOfEquity",
         "ProceedsFromIssuanceOfShares",
     ], "USD"),
+    # Share repurchases, financing-activities basis. The common-stock
+    # concept leads: it is what the great majority of filers tag, and the
+    # preferred/other-equity variants below are narrower lines that should
+    # only win when no common-stock repurchase line exists. Extended rather
+    # than given a separate "ShareRepurchases" label -- this row already is
+    # that concept, and a second label would resolve the same concepts twice.
     ("StockRepurchasePayments", [
+        "PaymentsForRepurchaseOfCommonStock",
+        "PaymentsForRepurchaseOfCommonStockAndEquity",
         "PaymentsToAcquireOrRedeemEntitysShares",
         "PaymentsForRepurchaseOfEquity",
+        "TreasuryStockValueAcquiredCostMethod",
         "PaymentsForRepurchaseOfPreferredStockAndPreferenceStock",
         "PurchaseOfTreasuryShares",
         "PaymentsForRepurchaseOfOtherEquity",
@@ -2703,10 +2755,29 @@ _CF_WATERFALL = [
         "InterestPaidNet",
         "InterestPaid",
     ], "USD"),
+    # Cash dividends paid, financing-activities basis. Extended rather than
+    # given a second label -- "CommonDividendsPaid" above resolves the
+    # *declared* dividend concepts (DividendsCommonStockCash etc.), which is
+    # a different figure from cash actually paid out in the period.
+    #
+    # Deliberately NOT included: PaymentsOfDividendsMinorityInterest and
+    # PaymentsOfDistributionsToAffiliates. Both are noncontrolling-interest /
+    # affiliate distributions -- a different economic line from the common
+    # dividend, and not a subset of it. Including them made any filer that
+    # tags only the NCI line report that figure as its shareholder dividend
+    # (confirmed live: PSA distributes ~$2.3B but tags only a $28M NCI line,
+    # which was being shown as "Dividends Paid" and drove every payout and
+    # yield row off by two orders of magnitude). Same class of error as
+    # using capitalized interest as interest expense.
+    #
+    # PaymentsOfCapitalDistribution is included: REITs and partnerships that
+    # do not use "dividend" wording file their common distribution there
+    # (confirmed live: PSA $2,303M).
     ("DividendsPaid", [
         "PaymentsOfDividendsCommonStock",
         "PaymentsOfDividends",
         "PaymentsOfOrdinaryDividends",
+        "PaymentsOfCapitalDistribution",
     ], "USD"),
 ]
 
@@ -2815,6 +2886,16 @@ def _has_valid_values(vals: dict, periods: list) -> bool:
 # -----------------------------------------------------------------------------
 # Waterfall resolution -> DataFrame
 # -----------------------------------------------------------------------------
+
+# Waterfall labels whose candidate concepts are genuine substitutes for the
+# same economic line, so a period the winning concept doesn't cover may be
+# filled from the next candidate rather than left as zero. Keep this set
+# small and deliberate: for most labels the candidates are NOT
+# interchangeable (segment subtotals, gross vs. net variants), and splicing
+# them would corrupt the series. See the gap-fill block in
+# _resolve_waterfall for the full rationale.
+_GAP_FILL_LABELS = {"InterestExpense"}
+
 
 def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
                        is_instant: bool = False,
@@ -2930,6 +3011,54 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
         if resolved_concept is None and fallback_concept is not None:
             resolved_concept = fallback_concept
             period_vals = fallback_vals
+
+        # -- Gap-fill pass (opt-in per label) ---------------------------------
+        # The commit rule above accepts the first candidate with a value for
+        # ANY requested period, so a concept that covers only part of the
+        # window permanently blocks later candidates that would cover the
+        # rest. That is correct for most labels -- mixing concepts risks
+        # splicing a segment subtotal into a consolidated series -- but wrong
+        # where the taxonomy retired one element mid-window and filers
+        # migrated to another. Interest expense is exactly that case:
+        # us-gaap:InterestExpense was deprecated and filers moved to
+        # InterestExpenseNonoperating, so no single concept spans five years
+        # and the most recent periods silently resolved to zero.
+        #
+        # Only labels in _GAP_FILL_LABELS are filled, and only periods still
+        # missing after the primary candidate won. Filled values are
+        # sign-normalised to the primary series so consumers see one
+        # consistent convention.
+        if label in _GAP_FILL_LABELS and resolved_concept is not None:
+            missing = [p for p in periods if period_vals.get(p) is None]
+            if missing:
+                _resolved_signs = [v for v in period_vals.values()
+                                   if isinstance(v, (int, float)) and v]
+                _neg = (sum(1 for v in _resolved_signs if v < 0)
+                        > len(_resolved_signs) / 2) if _resolved_signs else False
+                contributors = [resolved_concept]
+                for concept in augmented:
+                    if not missing:
+                        break
+                    if concept == resolved_concept:
+                        continue
+                    use_max = concept in _MAX_MAGNITUDE_CONCEPTS
+                    vals = _extract_annual(us_gaap, concept, unit,
+                                           is_instant=is_instant,
+                                           use_max_magnitude=use_max)
+                    if not vals:
+                        continue
+                    filled_any = False
+                    for p in list(missing):
+                        v = vals.get(p)
+                        if v is None:
+                            continue
+                        period_vals[p] = -abs(v) if _neg else abs(v)
+                        missing.remove(p)
+                        filled_any = True
+                    if filled_any:
+                        contributors.append(concept)
+                if len(contributors) > 1:
+                    resolved_concept = "+".join(contributors)
 
         row = {
             "standard_concept": label,

@@ -113,6 +113,236 @@ def _sector_group(sector: str, ticker: str = "") -> str:
 
 
 # ─────────────────────────────────────────────
+# Sector-appropriate metric suppression (Section 1)
+# ─────────────────────────────────────────────
+#
+# Display-only: nothing here changes what FundamentalAgent computes. Every
+# metric below is still calculated (and remains available for internal
+# cross-checks, e.g. risk flags) -- this map only tells the renderer which
+# rows are not meaningful to *show* for a given industry, plus the reason,
+# rendered as a "Basis of Omission" footnote in Section 1.
+#
+# Keyed by fine-grained SIC industry (data.facts_processor._sic_to_industry,
+# e.g. "realestate", "banking") so industries that share a sector_group
+# routing bucket but aren't equally suppressible (e.g. banking vs. insurance
+# both route to sg == "financials", but only banking's Operating Margin is
+# meaningfully replaced by Efficiency Ratio) get distinct treatment.
+_METRIC_SUPPRESSION = {
+
+    "realestate": {
+        "suppress": [
+            "Gross Margin", "COGS / Revenue", "Inventory Turnover",
+            "Days Sales of Inventory", "FCF Margin",
+        ],
+        "footnotes": {
+            "Gross Margin": "Not meaningful for REITs — revenue is "
+                "primarily rental income with no cost of goods sold in "
+                "the traditional sense. Use FFO/AFFO margin instead.",
+            "FCF Margin": "Replaced by FFO and AFFO margin for REITs "
+                "(NAREIT standard).",
+            "Inventory Turnover": "Not applicable — REITs do not carry "
+                "inventory.",
+            "Days Sales of Inventory": "Not applicable — REITs do not "
+                "carry inventory.",
+        },
+    },
+
+    "banking": {
+        "suppress": [
+            "Gross Margin", "COGS / Revenue", "Inventory Turnover",
+            "Days Sales of Inventory", "FCF Margin", "Operating Margin",
+            "ROIC",
+        ],
+        "footnotes": {
+            "Gross Margin": "Not meaningful for banks — revenue is net "
+                "interest income and fees, not product sales. Use Net "
+                "Interest Margin and Efficiency Ratio instead.",
+            "Operating Margin": "Replaced by Efficiency Ratio for "
+                "financial institutions.",
+            "Inventory Turnover": "Not applicable — banks do not carry "
+                "inventory.",
+            "Days Sales of Inventory": "Not applicable — banks do not "
+                "carry inventory.",
+            "FCF Margin": "Not a standard metric for banks — use Return "
+                "on Equity and Tier 1 Capital Ratio.",
+            "ROIC": "Not a standard metric for banks — regulatory "
+                "capital ratios are the relevant capital efficiency "
+                "measure.",
+        },
+    },
+
+    "insurance": {
+        "suppress": [
+            "Gross Margin", "COGS / Revenue", "Inventory Turnover",
+            "Days Sales of Inventory", "ROIC",
+        ],
+        "footnotes": {
+            "Gross Margin": "Not meaningful for insurers — premiums "
+                "earned less claims is captured by the combined ratio, "
+                "not gross margin.",
+            "Inventory Turnover": "Not applicable — insurers do not "
+                "carry inventory.",
+            "Days Sales of Inventory": "Not applicable — insurers do not "
+                "carry inventory.",
+            "ROIC": "Not a standard metric for insurers — use Return on "
+                "Equity and combined ratio.",
+        },
+    },
+
+    "energy": {
+        "suppress": ["Inventory Turnover", "Days Sales of Inventory"],
+        "footnotes": {
+            "Inventory Turnover": "Less meaningful for E&P companies — "
+                "commodity inventory dynamics differ from manufacturing.",
+            "Days Sales of Inventory": "Less meaningful for E&P "
+                "companies.",
+        },
+    },
+
+    "utilities": {
+        "suppress": [
+            "Gross Margin", "Inventory Turnover", "Days Sales of Inventory",
+        ],
+        "footnotes": {
+            "Gross Margin": "Not standard for regulated utilities — cost "
+                "recovery is set by regulators. Use operating margin and "
+                "EBITDA margin instead.",
+            "Inventory Turnover": "Not applicable — utilities do not "
+                "carry significant product inventory.",
+            "Days Sales of Inventory": "Not applicable — utilities do "
+                "not carry significant product inventory.",
+        },
+    },
+
+    "transportation": {
+        "suppress": [
+            "Gross Margin", "Inventory Turnover", "Days Sales of Inventory",
+        ],
+        "footnotes": {
+            "Gross Margin": "Not standard for airlines and transportation "
+                "companies — cost structure is primarily operating "
+                "expenses. Use operating margin instead.",
+            "Inventory Turnover": "Not applicable — transportation is a "
+                "service business.",
+            "Days Sales of Inventory": "Not applicable — transportation "
+                "is a service business.",
+        },
+    },
+
+    "hospitality": {
+        "suppress": ["Inventory Turnover", "Days Sales of Inventory"],
+        "footnotes": {
+            "Inventory Turnover": "Not meaningful for hotels and gaming "
+                "— service-based revenue model.",
+            "Days Sales of Inventory": "Not meaningful for hotels and "
+                "gaming — service-based revenue model.",
+        },
+    },
+
+    "telecom": {
+        "suppress": ["Inventory Turnover", "Days Sales of Inventory"],
+        "footnotes": {
+            "Inventory Turnover": "Less meaningful for telecom — "
+                "primarily a service business.",
+            "Days Sales of Inventory": "Not applicable for "
+                "service-dominant revenue.",
+        },
+    },
+
+    "mining": {
+        "suppress": ["Days Sales of Inventory"],
+        "footnotes": {
+            "Days Sales of Inventory": "Less meaningful for mining — "
+                "commodity inventory timing varies with production "
+                "cycles.",
+        },
+    },
+
+    "tech":       {"suppress": [], "footnotes": {}},
+    "healthcare": {"suppress": [], "footnotes": {}},
+}
+
+# sector_group (_sector_group() output) -> _METRIC_SUPPRESSION key, used
+# only when fine_industry is unavailable (SIC lookup failed) or doesn't
+# match a key above. Coarser than fine_industry -- e.g. it can't tell a
+# bank from an insurer -- so fine_industry is always tried first.
+_SECTOR_GROUP_SUPPRESSION_FALLBACK = {
+    "financials":   "banking",
+    "real_estate":  "realestate",
+    "energy":       "energy",
+    "utilities":    "utilities",
+}
+
+
+def _get_metric_suppression(fine_industry: str | None, sector_group: str) -> dict:
+    """Suppression rules for this ticker: fine_industry first, then a
+    coarser sector_group fallback, else no suppression."""
+    if fine_industry and fine_industry in _METRIC_SUPPRESSION:
+        return _METRIC_SUPPRESSION[fine_industry]
+    fallback_key = _SECTOR_GROUP_SUPPRESSION_FALLBACK.get(sector_group)
+    if fallback_key and fallback_key in _METRIC_SUPPRESSION:
+        return _METRIC_SUPPRESSION[fallback_key]
+    return {"suppress": [], "footnotes": {}}
+
+
+# ─────────────────────────────────────────────
+# Working-capital industry routing (Section 2B)
+# ─────────────────────────────────────────────
+#
+# Keyed by fine-grained SIC industry, same convention as _METRIC_SUPPRESSION.
+#   "full"    — every working-capital and capital-intensity metric
+#   "partial" — inventory metrics (DIO, Inv/Revenue, Inv/Assets) omitted;
+#               these industries either carry no inventory at all (transport,
+#               telecom) or carry commodity inventory whose turnover dynamics
+#               don't describe a working-capital cycle (energy, utilities)
+#   "skip"    — Section 2B not rendered: banks/insurers have no operating
+#               working-capital cycle (their balance sheet IS the business),
+#               and REITs hold real property rather than trade working capital
+_WC_SUPPRESSION = {
+    # Full working capital analysis
+    "general":          "full",
+    "retail":           "full",
+    "tech":             "full",
+    "semiconductors":   "full",
+    "healthcare":       "full",
+    "mining":           "full",
+    "hospitality":      "full",
+
+    # Partial — skip inventory metrics
+    "energy":           "partial",   # no inventory turnover
+    "transportation":   "partial",   # no inventory
+    "telecom":          "partial",   # no inventory
+
+    # Skip entirely — not meaningful
+    "realestate":       "skip",
+    "banking":          "skip",
+    "insurance":        "skip",
+    "utilities":        "partial",   # AR/AP only
+}
+
+# sector_group -> mode, used when fine_industry is unavailable (SIC lookup
+# failed) or isn't a key above. Coarser -- it can't tell a bank from an
+# insurer -- so fine_industry is always tried first.
+_WC_MODE_FALLBACK = {
+    "financials":     "skip",
+    "real_estate":    "skip",
+    "managed_care":   "partial",   # health insurers: no product inventory cycle
+    "utilities":      "partial",
+    "energy":         "partial",
+    "freight_broker": "partial",   # non-asset-based: no inventory
+    "general":        "full",
+}
+
+
+def _get_wc_mode(fine_industry: str | None, sector_group: str) -> str:
+    """Working-capital display mode for this ticker: fine_industry first,
+    then a coarser sector_group fallback, else the full metric set."""
+    if fine_industry and fine_industry in _WC_SUPPRESSION:
+        return _WC_SUPPRESSION[fine_industry]
+    return _WC_MODE_FALLBACK.get(sector_group, "full")
+
+
+# ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
 
@@ -277,6 +507,743 @@ def _yfinance_ratio_fallback(ticker: str, info_key: str, divide_by: float = 1.0)
         return None, ""
 
 
+# Cell sentinel for a period whose per-share/EV metrics were suppressed
+# because its share count is as-filed (pre-split) while prices are
+# split-adjusted. Deliberately NOT one of renderer._is_na_cell's
+# "structural" strings, so the row stays visible with the reason shown.
+_PRESPLIT_NA = "N/A (pre-split)"
+
+
+# ─────────────────────────────────────────────
+# Red flag post-processing (collapse + ordering)
+# ─────────────────────────────────────────────
+
+# Matches the shape every per-period threshold flag is written in:
+#   "<metric> <value> (<year>) <below|above ...> — <explanation>"
+# e.g. "Current ratio 0.79x (2026) below 1.0x threshold — current
+# liabilities exceed current assets"
+_FLAG_PERIOD_RE = re.compile(
+    r"^(?P<head>.*?)(?P<val>-?[\d,]+(?:\.\d+)?\s*[x%])\s+"
+    r"\((?P<yr>[A-Za-z0-9]{2,8})\)\s+(?P<tail>.+)$"
+)
+
+# Period labels as they appear in flag text, for ordering flags that aren't
+# threshold-shaped. Covers the single form "(2026)" / "(FY26)" and the
+# transition form "(2025→2026)" used by the YoY change flags. Deliberately
+# anchored to parentheses so a bare four-digit number elsewhere in the text
+# (a maturity year, a dollar amount) isn't mistaken for the period label.
+_FLAG_YEAR_RE = re.compile(
+    r"\(((?:FY)?\d{2,4})(?:\s*(?:→|->|-)\s*((?:FY)?\d{2,4}))?\)"
+)
+
+# Substrings that mark a flag as high-severity, used as the secondary sort
+# key within each recency bucket.
+_FLAG_SEVERITY_KEYWORDS = (
+    "net loss", "distress", "data error", "negative", "exceeds operating cash",
+    "contraction", "below 0%", "impairment", "combined signal",
+    "interest coverage", "refinancing cliff", "pre-split",
+)
+
+
+def _collapse_repeated_flags(flags: list, periods: list) -> list:
+    """
+    Collapse near-identical per-period threshold flags into one line naming
+    the range, so a condition true in every year reads as one structural
+    finding instead of five near-duplicate bullets.
+
+    Grouping is on the flag text with the value and year removed, so it is
+    metric-agnostic: any flag written as "<metric> <value> (<year>)
+    <condition> — <explanation>" collapses, whatever the metric.
+    """
+    if not flags:
+        return flags
+
+    # _fy() label -> position in the period list (0 = most recent)
+    order = {_fy(p): i for i, p in enumerate(periods)}
+    total = len(periods)
+
+    groups: dict = {}
+    passthrough: list = []
+    for idx, f in enumerate(flags):
+        m = _FLAG_PERIOD_RE.match(f)
+        if not m or m.group("yr") not in order:
+            passthrough.append((idx, f))
+            continue
+        key = (m.group("head"), m.group("tail"))
+        groups.setdefault(key, []).append((idx, m))
+
+    out: list = []
+    for idx, f in passthrough:
+        out.append((idx, f))
+
+    for (head, tail), members in groups.items():
+        if len(members) < 2:
+            out.append((members[0][0], flags[members[0][0]]))
+            continue
+
+        members.sort(key=lambda t: order[t[1].group("yr")])   # newest first
+        vals = []
+        for _, m in members:
+            try:
+                vals.append((float(m.group("val")[:-1].replace(",", "")),
+                             m.group("val")))
+            except ValueError:
+                vals.append((0.0, m.group("val")))
+        lo = min(vals, key=lambda v: v[0])[1]
+        hi = max(vals, key=lambda v: v[0])[1]
+
+        cond, _, expl = tail.partition(" — ")
+        n = len(members)
+        span = f"all {total} years" if n == total else f"{n} of {total} years"
+
+        # Direction of "worse" is read from the condition itself: a
+        # below-threshold breach worsens as the value falls, an
+        # above-threshold breach as it rises.
+        newest_v = vals[0][0]
+        oldest_v = vals[-1][0]
+        if "below" in cond:
+            worsening = newest_v < oldest_v
+        elif "above" in cond:
+            worsening = newest_v > oldest_v
+        else:
+            worsening = None
+        if worsening is True:
+            trend = "; and deteriorating across the window"
+        elif worsening is False:
+            trend = "; structural, not deteriorating"
+        else:
+            trend = ""
+
+        collapsed = f"{head}{cond} in {span} ({lo}–{hi})"
+        if expl:
+            collapsed += f" — {expl}{trend}"
+        elif trend:
+            collapsed += f" —{trend[1:]}"
+        # Sort position: keep it after current-period findings.
+        out.append((members[0][0] + len(flags), collapsed))
+
+    out.sort(key=lambda t: t[0])
+    return [f for _, f in out]
+
+
+def _sort_flags_by_recency(flags: list, periods: list) -> list:
+    """
+    Order flags: current-period findings first, then undated ones (trend
+    and data-quality flags), then multi-year/structural and older-period
+    findings. Severity keywords break ties within each bucket; original
+    order breaks the rest, so the sort is stable and reproducible.
+    """
+    if not flags or not periods:
+        return flags
+
+    current_label = _fy(periods[0])
+    older_labels  = {_fy(p) for p in periods[1:]}
+
+    def bucket(f: str) -> int:
+        # findall returns a tuple per match (single label, transition label);
+        # flatten and drop the empty second group.
+        years = {y for pair in _FLAG_YEAR_RE.findall(f) for y in pair if y}
+        if " years (" in f:          # collapsed multi-year finding
+            return 2
+        if current_label in years:
+            return 0
+        if years & older_labels:
+            return 2
+        return 1                     # undated: trend / data-quality flags
+
+    def severity(f: str) -> int:
+        fl = f.lower()
+        return 0 if any(k in fl for k in _FLAG_SEVERITY_KEYWORDS) else 1
+
+    return [f for _, _, _, f in
+            sorted(((bucket(f), severity(f), i, f) for i, f in enumerate(flags)))]
+
+
+def _resolve_diluted_shares(profile, periods: list, ticker: str,
+                            current_price: float | None = None,
+                            market_cap: float | None = None) -> tuple[dict, dict]:
+    """
+    Per-period diluted share count plus the source each one came from.
+
+    yfinance annual "Diluted Average Shares" is primary (pre-cleaned, no
+    unit-tagging ambiguity) and is split-adjusted for its whole history;
+    the SEC XBRL waterfall is the fallback for any period yfinance doesn't
+    cover (it only carries ~4 fiscal years vs. this pipeline's 5) and is
+    as-filed, i.e. NOT retroactively split-adjusted.
+
+    That asymmetry is what _detect_split_contamination() keys off, so the
+    source label must be recorded honestly per period. Extracted from
+    ValuationAgent so the split detector, the agent, and the offline
+    generality sweep all resolve shares through one code path.
+
+    Returns ({period: shares_or_None}, {period: "yfinance"|"xbrl"|"implied (mkt cap / price)"}).
+    """
+    shares_rows: dict = {}
+    shares_source: dict = {}
+
+    _yf_diluted_by_year = _yfinance_diluted_shares_cache(ticker) if ticker else {}
+    inc = profile.income_statement
+
+    for i, p in enumerate(periods):
+        # Primary: yfinance annual "Diluted Average Shares", matched by
+        # fiscal year.
+        _yf_year = int(p[:4]) if p and p[:4].isdigit() else None
+        shares = _yf_diluted_by_year.get(_yf_year) if _yf_year is not None else None
+        if shares and shares > 0:
+            shares_source[p] = "yfinance"
+        else:
+            shares = _safe_val(inc.diluted_shares, i)
+            shares_source[p] = "xbrl"
+        # Fallback 1: derive shares from market cap / current price when
+        # neither yfinance nor the XBRL filing tag a diluted count (e.g. OXY).
+        if (not shares or shares == 0) and current_price and market_cap and current_price > 0:
+            shares = market_cap / current_price
+            shares_source[p] = "implied (mkt cap / price)"
+        # Fallback 2: unit correction — some filers (e.g. MCD) report shares
+        # in millions (721.9) rather than actual count (721,900,000).
+        # Detected by comparing to implied share count from market data:
+        # if XBRL shares is off by ~1,000,000x, scale it up.
+        if shares and shares > 0 and current_price and market_cap and current_price > 0:
+            implied = market_cap / current_price
+            if implied > 0:
+                ratio = implied / shares
+                if 500_000 <= ratio <= 2_000_000:
+                    shares = shares * 1_000_000
+        shares_rows[p] = shares
+
+    return shares_rows, shares_source
+
+
+def _detect_split_contamination(shares_by_period: dict,
+                                periods: list,
+                                share_sources: dict) -> set:
+    """
+    Return the set of periods whose share count is likely pre-split
+    relative to the most recent period.
+
+    A ratio jump of >3x or <0.33x between adjacent periods indicates a
+    split (or reverse split) occurred. Every period older than that
+    boundary is contaminated when its share count came from XBRL
+    (as-filed, never retroactively adjusted) while the FY-end prices this
+    pipeline divides by come from yfinance and ARE split-adjusted.
+
+    Purely ratio-driven: no split calendar, no per-ticker table. A period
+    whose share count came from yfinance is never contaminated, because
+    that source is split-adjusted on both sides of the ratio.
+
+    The 3x/0.33x bounds are deliberately wide. Real share-count changes
+    from buybacks or issuance are single-digit percentages a year; even an
+    aggressive equity raise rarely triples a count in one year, so a jump
+    this large is a split with very few false positives. The narrowest
+    common split (2-for-1) sits below the bound and is missed by design --
+    tightening to catch it would start flagging ordinary issuance.
+    """
+    contaminated = set()
+    split_found = False
+    for i in range(len(periods) - 1):
+        newer = shares_by_period.get(periods[i])
+        older = shares_by_period.get(periods[i + 1])
+        if not newer or not older or older == 0:
+            continue
+        ratio = newer / older
+        if ratio > 3 or ratio < 0.33:
+            split_found = True
+        if split_found:
+            # This and all older periods are suspect
+            contaminated.add(periods[i + 1])
+
+    # Only as-filed (XBRL) counts are actually contaminated -- a period
+    # sourced from yfinance is already split-adjusted and consistent with
+    # the price series.
+    return {p for p in contaminated if share_sources.get(p) == "xbrl"}
+
+
+# Plausible range for a real diluted share count. Same band ValuationAgent
+# uses to reject implausible counts before computing CFO/Share; reused here
+# to decide which side of a unit-error boundary is the mis-tagged one.
+_SHARES_PLAUSIBLE_LO = 1_000_000
+_SHARES_PLAUSIBLE_HI = 500_000_000_000
+
+
+def _share_unit_scale(ratio: float) -> int | None:
+    """
+    The power of 1000 a share-count discontinuity sits on, or None.
+
+    Matches both directions: the older period tagged too small (ratio ~
+    scale) and too large (ratio ~ 1/scale). Note the second test is
+    (1/ratio)/scale, NOT scale/ratio -- the latter is algebraically the
+    same condition as the first (scale/ratio in [0.98, 1.02] means ratio
+    is within 2% of scale), so it would never catch the inverse direction.
+    """
+    if not ratio or ratio <= 0:
+        return None
+    for scale in (1000, 1_000_000):
+        if 0.98 <= ratio / scale <= 1.02 or 0.98 <= (1 / ratio) / scale <= 1.02:
+            return scale
+    return None
+
+
+def _classify_share_anomaly(ratio: float) -> str:
+    """
+    Classify a share-count discontinuity between adjacent periods.
+
+    Real splits are small integer ratios (2-for-1 through the 50-for-1 end
+    of the range seen in practice). Share-count unit errors -- a filing
+    that tagged one year's weighted-average count in thousands or millions
+    rather than units -- land on a near-exact power of 1000, because that
+    is what the unit change does arithmetically.
+
+    Anything else (a ratio that is neither a plausible split nor a clean
+    power of 1000 -- e.g. a unit error compounded with a split) stays
+    "unknown" and is suppressed rather than guessed at.
+
+    Returns "unit_error", "likely_split", or "unknown".
+    """
+    if _share_unit_scale(ratio) is not None:
+        return "unit_error"
+    if 1.5 <= ratio <= 60 or 1 / 60 <= ratio <= 1 / 1.5:
+        return "likely_split"
+    return "unknown"
+
+
+def _resolve_share_anomalies(shares_by_period: dict, periods: list,
+                             share_sources: dict, ticker: str = "") -> dict:
+    """
+    Classify every share-count discontinuity, repair the repairable ones,
+    and return what still has to be suppressed.
+
+    A unit error is a data defect with a known correction -- multiply the
+    mis-scaled period back by the power of 1000 it was tagged at -- so the
+    period's per-share metrics become usable rather than being thrown
+    away. A split has no such correction available here (the as-filed
+    count is simply on the other side of the split from the price series),
+    so those periods are still suppressed, as is anything unclassifiable.
+
+    Walks newest-first so each comparison is against an already-corrected
+    anchor, which lets a run of consecutive mis-scaled years be repaired.
+    Only XBRL-sourced periods are touched; yfinance counts are already
+    split-adjusted and consistent with the price series.
+
+    Returns
+    -------
+    {
+      "shares":       {period: count}   -- corrections applied
+      "contaminated": set(periods)      -- still unsafe, suppress these
+      "classes":      {period: "unit_error"|"likely_split"|"unknown"}
+      "ratios":       {period: float}
+      "corrections":  {period: {"scale": int, "raw": float, "corrected": float}}
+    }
+    """
+    shares = dict(shares_by_period)
+    classes: dict = {}
+    ratios: dict = {}
+    corrections: dict = {}
+
+    for i in range(len(periods) - 1):
+        newer_p, older_p = periods[i], periods[i + 1]
+        newer = shares.get(newer_p)
+        older = shares.get(older_p)
+        if not newer or not older or older == 0:
+            continue
+        ratio = newer / older
+        if 0.33 <= ratio <= 3:
+            continue                      # no discontinuity at this boundary
+
+        kind = _classify_share_anomaly(ratio)
+        classes[older_p] = kind
+        ratios[older_p]  = ratio
+
+        if kind == "unit_error":
+            # Which SIDE of the boundary is mis-scaled is not knowable from
+            # the ratio alone -- the older period may be tagged in thousands,
+            # or the newer one may be. Decide with the same share-count
+            # plausibility band the rest of the pipeline uses: the side that
+            # falls outside it is the mis-tagged one. If both or neither look
+            # implausible the boundary is left alone and the re-detection
+            # pass below suppresses it.
+            scale = _share_unit_scale(ratio) or 1000
+            older_bad = (not _SHARES_PLAUSIBLE_LO < older < _SHARES_PLAUSIBLE_HI
+                         and share_sources.get(older_p) == "xbrl")
+            newer_bad = (not _SHARES_PLAUSIBLE_LO < newer < _SHARES_PLAUSIBLE_HI
+                         and share_sources.get(newer_p) == "xbrl")
+
+            if older_bad and not newer_bad:
+                bad_p, raw, anchor = older_p, older, newer
+            elif newer_bad and not older_bad:
+                bad_p, raw, anchor = newer_p, newer, older
+            else:
+                continue        # ambiguous -- fall through to suppression
+
+            corrected = raw * scale if raw < anchor else raw / scale
+            shares[bad_p] = corrected
+            corrections[bad_p] = {"scale": scale, "raw": raw,
+                                  "corrected": corrected}
+            if ticker:
+                _op = "×" if raw < anchor else "÷"
+                print(f"[{ticker}] share unit correction: {bad_p} "
+                      f"{raw:,.0f} {_op} {scale:,} = {corrected:,.0f}")
+            continue
+
+        # Splits and unclassifiable breaks: only as-filed counts are
+        # suspect; a yfinance-sourced period is already on the same basis
+        # as the price series.
+        if share_sources.get(older_p) != "xbrl":
+            continue
+
+        if ticker:
+            print(f"[{ticker}] share anomaly ({kind}): {older_p} "
+                  f"ratio={ratio:,.4g} — suppressing per-share/EV metrics")
+
+    # Re-run the detector once on the corrected series. Anything still
+    # flagged did not clear (a correction that didn't hold, or a genuine
+    # split) and falls back to suppression.
+    contaminated = _detect_split_contamination(shares, periods, share_sources)
+    for p in contaminated:
+        classes.setdefault(p, "unknown")
+        if p in corrections and ticker:
+            print(f"[{ticker}] share unit correction did not clear the "
+                  f"anomaly for {p} — falling back to suppression")
+
+    return {"shares": shares, "contaminated": contaminated,
+            "classes": classes, "ratios": ratios, "corrections": corrections}
+
+
+def _split_boundary_info(shares_by_period: dict, periods: list) -> dict:
+    """
+    Implied split factor and boundary for the footnote, derived from the
+    same adjacent-period ratio the detector uses. Returns {} when no
+    boundary is present.
+    """
+    for i in range(len(periods) - 1):
+        newer = shares_by_period.get(periods[i])
+        older = shares_by_period.get(periods[i + 1])
+        if not newer or not older or older == 0:
+            continue
+        ratio = newer / older
+        if ratio > 3:
+            return {"factor": round(ratio, 1), "direction": "split",
+                    "after": periods[i], "before": periods[i + 1]}
+        if ratio < 0.33:
+            return {"factor": round(1 / ratio, 1), "direction": "reverse split",
+                    "after": periods[i], "before": periods[i + 1]}
+    return {}
+
+
+def _compute_working_capital(profile, periods: list, mode: str) -> dict:
+    """
+    Per-period working-capital and capital-intensity metrics (Section 2B).
+
+    `mode` comes from _get_wc_mode(): "full" computes everything,
+    "partial" leaves the inventory-derived series (DIO, Inv/Revenue,
+    Inv/Assets) empty, and "skip" computes nothing at all. Only the
+    inventory series are gated on mode -- CCC still nets DSO against DPO
+    in partial mode, with the (absent) DIO term treated as zero.
+
+    Every value is a plain float or None; formatting is the renderer's job.
+    None means "not computable from filed XBRL", never zero -- _safe_val
+    already collapses this data layer's 0.0 unresolved-tag sentinel to None.
+
+    CapEx is read through abs(): filers tag capital expenditures with either
+    sign (as an investing-activity outflow or as a positive additions line),
+    and the CapEx/Revenue and CapEx/CFO intensity ratios are only meaningful
+    on the magnitude. Same convention CashFlowProfile.free_cash_flow uses.
+    """
+    _KEYS = ("dso", "dpo", "dio", "ccc", "nwc", "nwc_pct_rev",
+             "ar_pct_rev", "ap_pct_rev", "inv_pct_rev", "inv_pct_ta",
+             "ppe_pct_ta", "capex_pct_rev", "capex_pct_cfo")
+    out: dict = {k: {} for k in _KEYS}
+    out["mode"] = mode
+
+    if mode == "skip" or not periods:
+        return out
+
+    inc = profile.income_statement
+    bal = profile.balance_sheet
+    cf  = profile.cash_flow
+
+    # Hoist the vectors -- these are properties that re-run the XBRL lookup
+    # on every attribute access.
+    ar_v    = bal.accounts_receivable
+    ap_v    = bal.accounts_payable
+    inv_v   = bal.inventory
+    ca_v    = bal.current_assets
+    cl_v    = bal.current_liabilities
+    ppe_v   = bal.ppe_net
+    ta_v    = bal.total_assets
+    rev_v   = inc.revenue
+    cogs_v  = inc.cogs
+    capex_v = cf.capital_expenditures
+    cfo_v   = cf.operating_cash_flow
+
+    _show_inventory = (mode == "full")
+
+    for i, p in enumerate(periods):
+        ar    = _safe_val(ar_v, i)
+        ap    = _safe_val(ap_v, i)
+        inv   = _safe_val(inv_v, i)
+        rev   = _safe_val(rev_v, i)
+        cogs  = _safe_val(cogs_v, i)
+        ca    = _safe_val(ca_v, i)
+        cl    = _safe_val(cl_v, i)
+        ppe   = _safe_val(ppe_v, i)
+        ta    = _safe_val(ta_v, i)
+        capex = _safe_val(capex_v, i)
+        cfo   = _safe_val(cfo_v, i)
+
+        capex_abs = abs(capex) if capex is not None else None
+
+        # ── Cycle days ────────────────────────────────────────────────────
+        dso = (ar / rev * 365) if (ar and rev and ar > 0 and rev > 0) else None
+
+        # DPO denominator: COGS preferred, revenue as fallback for filers
+        # that don't break out a cost-of-sales line (service businesses).
+        dpo_den = cogs if (cogs and cogs > 0) else (rev if (rev and rev > 0) else None)
+        dpo = (ap / dpo_den * 365) if (ap and ap > 0 and dpo_den) else None
+
+        # DIO: same guards as FundamentalAgent's DSI -- negative net
+        # inventory (customer advances exceeding gross inventory) and
+        # negative COGS (loss provisions) both make the ratio meaningless.
+        if _show_inventory and inv and cogs and inv > 0 and cogs > 0:
+            dio = inv / cogs * 365
+        else:
+            dio = None
+
+        if dio is not None or dso is not None or dpo is not None:
+            ccc = (dio or 0) + (dso or 0) - (dpo or 0)
+        else:
+            ccc = None
+
+        # ── Balance-sheet intensity ───────────────────────────────────────
+        nwc = (ca - cl) if (ca and cl) else None
+
+        out["dso"][p]         = dso
+        out["dpo"][p]         = dpo
+        out["dio"][p]         = dio
+        out["ccc"][p]         = ccc
+        out["nwc"][p]         = nwc
+        out["nwc_pct_rev"][p] = (nwc / rev * 100) if (nwc is not None and rev) else None
+        out["ar_pct_rev"][p]  = (ar / rev * 100)  if (ar and rev) else None
+        out["ap_pct_rev"][p]  = (ap / rev * 100)  if (ap and rev) else None
+        out["inv_pct_rev"][p] = (inv / rev * 100) if (_show_inventory and inv and rev) else None
+        out["inv_pct_ta"][p]  = (inv / ta * 100)  if (_show_inventory and inv and ta)  else None
+        out["ppe_pct_ta"][p]  = (ppe / ta * 100)  if (ppe and ta) else None
+        out["capex_pct_rev"][p] = (capex_abs / rev * 100) if (capex_abs and rev) else None
+        out["capex_pct_cfo"][p] = (capex_abs / cfo * 100) if (capex_abs and cfo) else None
+
+    return out
+
+
+def _compute_shareholder_returns(profile, periods: list, sg: str,
+                                 affo_by_period: dict | None = None) -> dict:
+    """
+    Dividends, buybacks and payout ratios per FY period.
+
+    Only the parts that don't need market data live here. The three yield
+    rows (dividend / buyback / total shareholder yield) and the diluted
+    share-count change are computed in ValuationAgent instead, because they
+    need the FY-end market cap it already derives for fy_ev and must honour
+    the same split/unit-anomaly suppression -- recomputing either here
+    would duplicate that work and risk the two disagreeing.
+
+    Payout denominator is FCF, except for REITs with AFFO available, where
+    AFFO is the sector-standard distribution base (GAAP FCF for a REIT is
+    distorted by real-estate D&A -- the same reason CFO metrics are
+    suppressed for the sector). `payout_basis` records which was used so
+    the renderer can label the row.
+
+    Filers tag financing outflows with either sign; every figure here is
+    taken on magnitude and re-signed by meaning (dividends and buybacks are
+    always outflows, issuance always an inflow).
+    """
+    cf  = profile.cash_flow
+    inc = profile.income_statement
+
+    div_v   = cf.dividends_paid
+    rep_v   = cf.share_repurchases
+    iss_v   = cf.share_issuance
+    fcf_v   = cf.free_cash_flow
+    ni_v    = inc.net_income
+
+    affo_by_period = affo_by_period or {}
+    use_affo = (sg == "real_estate"
+                and any(isinstance(v, (int, float)) for v in affo_by_period.values()))
+
+    # Payout denominator follows the same sector routing the rest of the
+    # report uses. Banks and insurers get earnings: FCF is already
+    # suppressed for financials everywhere else (FCF Margin, EV/FCF,
+    # FCF/EV) because CapEx is not their capital-allocation lever, so a
+    # payout ratio against it is meaningless -- it reads in the hundreds of
+    # percent for every healthy bank and would fire the "exceeds FCF" flag
+    # universally.
+    if use_affo:
+        basis = "AFFO"
+    elif sg == "financials":
+        basis = "Earnings"
+    else:
+        basis = "FCF"
+
+    out: dict = {
+        "dividends_paid": {}, "buybacks": {}, "share_issuance": {},
+        "net_buyback": {}, "payout_ratio_earnings": {},
+        "payout_ratio_fcf": {}, "total_payout_fcf": {},
+        "payout_basis": basis,
+        "available": False,
+    }
+
+    for i, p in enumerate(periods):
+        div = _safe_val(div_v, i)
+        rep = _safe_val(rep_v, i)
+        iss = _safe_val(iss_v, i)
+        ni  = _safe_val(ni_v, i)
+
+        div = abs(div) if div else None
+        rep = abs(rep) if rep else None
+        iss = abs(iss) if iss else None
+
+        net_bb = None
+        if rep is not None or iss is not None:
+            net_bb = (rep or 0) - (iss or 0)
+
+        if basis == "AFFO":
+            base = affo_by_period.get(p)
+            base = base if isinstance(base, (int, float)) else None
+        elif basis == "Earnings":
+            base = ni
+        else:
+            base = _safe_val(fcf_v, i)
+
+        out["dividends_paid"][p] = div
+        out["buybacks"][p]       = rep
+        out["share_issuance"][p] = iss
+        out["net_buyback"][p]    = net_bb
+        out["payout_ratio_earnings"][p] = (div / ni * 100) if (div and ni and ni > 0) else None
+        out["payout_ratio_fcf"][p]      = (div / base * 100) if (div and base and base > 0) else None
+        out["total_payout_fcf"][p] = (
+            ((div or 0) + (net_bb or 0)) / base * 100
+            if (base and base > 0 and (div or net_bb)) else None
+        )
+
+    # The whole block is suppressed for companies that neither pay a
+    # dividend nor buy back stock in any period (many growth names).
+    out["available"] = any(
+        out["dividends_paid"].get(p) or out["buybacks"].get(p)
+        for p in periods
+    )
+    return out
+
+
+def _compute_sbc_metrics(profile, periods: list) -> dict:
+    """
+    Stock-based compensation and FCF restated to treat it as a cash cost.
+
+    Source: the existing NonCashStockComp CF label (added for the AFFO
+    work) via CashFlowProfile.non_cash_stock_comp, falling back to the
+    existing StockBasedCompensationExpense IS label via
+    IncomeStatementProfile.stock_comp. Both are reused as-is -- no new
+    label, no extension. Measured coverage across a 20-ticker sector
+    spread: 15/20 resolve on those two labels, with the non-resolvers
+    being banks/utilities/energy that file no SBC line at all.
+
+    Deliberately NOT used: the StockBasedCompensationCF label. Its second
+    candidate is
+    EmployeeServiceShareBasedCompensationAllocationOfRecognizedPeriodCostsCapitalizedAmount
+    -- the portion of SBC CAPITALIZED into inventory or software, i.e.
+    explicitly the part NOT expensed. For any filer where its first
+    candidate misses, that label returns the capitalized amount and would
+    understate SBC. Confirmed live: it resolves for A, CMG and PLD
+    alongside a much larger true SBC figure. Same class of error as
+    InterestCostsCapitalized and PaymentsOfDividendsMinorityInterest.
+
+    SBC is a non-cash add-back and filers tag it with either sign; it is
+    normalised to a positive magnitude before being subtracted from FCF.
+    """
+    out: dict = {"sbc": {}, "sbc_pct_revenue": {}, "sbc_pct_cfo": {},
+                 "fcf_after_sbc": {}, "fcf_after_sbc_margin": {},
+                 "available": False}
+
+    cf  = profile.cash_flow
+    inc = profile.income_statement
+    sbc_cf_v = cf.non_cash_stock_comp
+    sbc_is_v = inc.stock_comp
+    rev_v    = inc.revenue
+    cfo_v    = cf.operating_cash_flow
+    fcf_v    = cf.free_cash_flow
+
+    for i, p in enumerate(periods):
+        sbc = _safe_val(sbc_cf_v, i)
+        if sbc is None:
+            sbc = _safe_val(sbc_is_v, i)
+        sbc = abs(sbc) if sbc else None
+
+        rev = _safe_val(rev_v, i)
+        cfo = _safe_val(cfo_v, i)
+        fcf = _safe_val(fcf_v, i)
+
+        out["sbc"][p] = sbc
+        out["sbc_pct_revenue"][p] = (sbc / rev * 100) if (sbc and rev and rev > 0) else None
+        out["sbc_pct_cfo"][p]     = (sbc / cfo * 100) if (sbc and cfo and cfo > 0) else None
+        # FCF after SBC needs both; SBC / Revenue above stands on its own
+        # when FCF doesn't resolve.
+        if sbc is not None and fcf is not None:
+            after = fcf - sbc
+            out["fcf_after_sbc"][p] = after
+            out["fcf_after_sbc_margin"][p] = (after / rev * 100) if (rev and rev > 0) else None
+        else:
+            out["fcf_after_sbc"][p] = None
+            out["fcf_after_sbc_margin"][p] = None
+
+    out["available"] = any(out["sbc"].get(p) for p in periods)
+    return out
+
+
+def _compute_yoy_and_cagr(values: dict, periods: list) -> dict:
+    """
+    YoY % change and CAGR for one metric series.
+
+    values  : {period: float}  -- non-numeric entries (the diagnostic
+              "N/A (...)" strings these dicts also carry) are treated as
+              missing, same as None.
+    periods : ordered most-recent first.
+
+    YoY  : (current - prior) / abs(prior) * 100
+    CAGR : (most_recent / oldest) ** (1 / n_years) - 1
+
+    Guards:
+      - skip when the prior value is 0 or missing
+      - skip when the two values have different signs (a negative base makes
+        a percentage change meaningless)
+      - CAGR only when >= 3 periods resolve, and only from a positive base
+        to a positive end value
+    """
+    def _num(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    yoy = {}
+    for i in range(len(periods) - 1):
+        curr_p = periods[i]
+        prev_p = periods[i + 1]
+        curr = _num(values.get(curr_p))
+        prev = _num(values.get(prev_p))
+        if (curr is not None and prev is not None
+                and prev != 0
+                and (curr >= 0) == (prev >= 0)):   # same sign
+            yoy[curr_p] = (curr - prev) / abs(prev) * 100
+        else:
+            yoy[curr_p] = None
+
+    # CAGR from oldest to most recent
+    cagr = None
+    valid_periods = [p for p in periods if _num(values.get(p)) is not None]
+    if len(valid_periods) >= 3:
+        newest = _num(values[valid_periods[0]])
+        oldest = _num(values[valid_periods[-1]])
+        n = len(valid_periods) - 1
+        if oldest and oldest > 0 and newest > 0:
+            cagr = (newest / oldest) ** (1 / n) - 1
+
+    return {"yoy": yoy, "cagr": cagr, "n_years": max(len(valid_periods) - 1, 0)}
+
+
 def _cagr(start, end, years):
     try:
         if start and start > 0 and end and years > 0:
@@ -409,6 +1376,14 @@ class FundamentalAgent:
         periods = profile.periods
         ticker = getattr(profile, 'ticker', '')
         sg = _sector_group(profile.sector, ticker)
+        fine_industry = getattr(profile, "fine_industry", None)
+        _metric_suppression = _get_metric_suppression(fine_industry, sg)
+        # Section 2B — working capital & capital intensity. Computed here
+        # (rather than in a separate agent) so it travels with the rest of
+        # the fundamental output to both the renderer and
+        # TrendCommentaryAgent, which raises the working-capital red flags.
+        _wc_mode = _get_wc_mode(fine_industry, sg)
+        working_capital = _compute_working_capital(profile, periods, _wc_mode)
 
         gross_margin = {}
         gross_margin_label = "Gross Margin"   # overridden per sector
@@ -442,8 +1417,6 @@ class FundamentalAgent:
         affo_margin  = {}   # AFFO margin (REITs only)
         ffo_components  = {}   # per-period FFO component breakdown (REITs only)
         affo_components = {}   # per-period AFFO component breakdown (REITs only)
-
-        prev_gm = None
 
         for i, p in enumerate(periods):
             rev  = inc.revenue[i]
@@ -531,19 +1504,12 @@ class FundamentalAgent:
                 else:
                     net_margin[p] = "N/A"
 
-                # Check prev NIM for compression flag
-                if isinstance(gross_margin.get(p), str) and "%" in gross_margin[p]:
-                    gm_val = _parse_pct(gross_margin[p])
-                    if gm_val is not None and prev_gm is not None:
-                        drop_bps = (prev_gm - gm_val) * 10000
-                        if drop_bps > RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]:
-                            flags.append(
-                                f"NIM compressed {drop_bps:.0f}bps: "
-                                f"{_pct(prev_gm)} → {_pct(gm_val)} ({_fy(p)}) — "
-                                f"interest margin deterioration (threshold "
-                                f"{int(RED_FLAG_THRESHOLDS['gross_margin_drop_bps'])}bps)"
-                            )
-                    prev_gm = _parse_pct(gross_margin[p]) if "%" in gross_margin.get(p, "") else prev_gm
+                # NIM compression is flagged after the loop, on the most
+                # recent YoY transition only -- see the margin-change block
+                # below. (The old in-loop version compared against the
+                # PREVIOUS iteration, which is the NEWER period given this
+                # loop runs newest-first, and so reported the change
+                # backwards.)
 
             # ── Sector: Energy ────────────────────────────────────────────
             elif sg == "energy":
@@ -560,16 +1526,9 @@ class FundamentalAgent:
                                 f"above {_pct(RED_FLAG_THRESHOLDS['op_cost_ratio_high'])} threshold — "
                                 f"costs consuming most of revenue"
                             )
-                        if prev_gm is not None:
-                            # Flag if cost ratio worsened > 500bps
-                            rise_bps = (op_cost_ratio - prev_gm) * 10000
-                            if rise_bps > RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]:
-                                flags.append(
-                                    f"Operating cost ratio rose {rise_bps:.0f}bps: "
-                                    f"{_pct(prev_gm)} → {_pct(op_cost_ratio)} ({_fy(p)}) — "
-                                    f"cost inflation outpacing revenue"
-                                )
-                        prev_gm = op_cost_ratio
+                        # Cost-ratio deterioration is flagged after the loop
+                        # on the most recent YoY transition only -- see the
+                        # margin-change block below.
                 else:
                     gross_margin[p] = "N/A (costs missing)"
 
@@ -625,15 +1584,8 @@ class FundamentalAgent:
                     if isinstance(gm_val, float) and gm_val > 1.0:
                         gm_val = "N/A (tag overflow)"
                     gross_margin[p] = _pct(gm_val) if isinstance(gm_val, float) else (gm_val or "N/A")
-                    if isinstance(gm_val, float) and prev_gm is not None:
-                        drop_bps = (prev_gm - gm_val) * 10000
-                        if drop_bps > RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]:
-                            flags.append(
-                                f"Gross margin compressed {drop_bps:.0f}bps: "
-                                f"{_pct(prev_gm)} → {_pct(gm_val)} ({_fy(p)}) — "
-                                f"exceeds {int(RED_FLAG_THRESHOLDS['gross_margin_drop_bps'])}bps warning threshold"
-                            )
-                    prev_gm = gm_val if isinstance(gm_val, float) else prev_gm
+                    # Compression flagged after the loop on the most recent
+                    # YoY transition only -- see the margin-change block below.
                 else:
                     gross_margin[p] = "N/A (medical costs/COGS missing)"
                 op_margin[p]  = _pct(_safe_div(oi, rev)) if rev else "N/A"
@@ -696,15 +1648,8 @@ class FundamentalAgent:
                     op_margin[p]    = _pct(_safe_div(oi, rev))
                     net_margin[p]   = _pct(_safe_div(ni, rev))
 
-                    if isinstance(gm_val, float) and prev_gm is not None:
-                        drop_bps = (prev_gm - gm_val) * 10000
-                        if drop_bps > RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]:
-                            flags.append(
-                                f"Gross margin compressed {drop_bps:.0f}bps: "
-                                f"{_pct(prev_gm)} → {_pct(gm_val)} ({_fy(p)}) — "
-                                f"exceeds {int(RED_FLAG_THRESHOLDS['gross_margin_drop_bps'])}bps warning threshold"
-                            )
-                    prev_gm = gm_val if isinstance(gm_val, float) else prev_gm
+                    # Compression flagged after the loop on the most recent
+                    # YoY transition only -- see the margin-change block below.
 
                     if isinstance(net_margin.get(p), str) and net_margin[p].startswith("-"):
                         flags.append(
@@ -1108,6 +2053,82 @@ class FundamentalAgent:
                 affo_rows[p] = None
                 affo_margin[p] = "N/A (sector)"
 
+        # ── Stock-based compensation ────────────────────────────────────────
+        sbc_metrics = _compute_sbc_metrics(profile, periods)
+        if sbc_metrics["available"] and periods:
+            # Most recent period only, consistent with the recency rule
+            # applied to the other margin flags.
+            _sbc_pct = sbc_metrics["sbc_pct_revenue"].get(periods[0])
+            if isinstance(_sbc_pct, (int, float)) and _sbc_pct > 10:
+                flags.append(
+                    f"SBC at {_sbc_pct:.1f}% of revenue ({_fy(periods[0])}) — "
+                    f"material economic cost not reflected in GAAP FCF"
+                )
+
+        # ── Shareholder returns (dividends / buybacks / payout) ─────────────
+        shareholder_returns = _compute_shareholder_returns(
+            profile, periods, sg, affo_rows
+        )
+        if shareholder_returns["available"] and periods:
+            _sr_mr   = periods[0]
+            _basis   = shareholder_returns["payout_basis"]
+            _pay_fcf = shareholder_returns["payout_ratio_fcf"].get(_sr_mr)
+            _tot_fcf = shareholder_returns["total_payout_fcf"].get(_sr_mr)
+            if isinstance(_pay_fcf, (int, float)) and _pay_fcf > 100:
+                flags.append(
+                    f"Dividends exceed {_basis} ({_pay_fcf:.0f}% of {_basis}, "
+                    f"{_fy(_sr_mr)}) — distribution funded by balance sheet or debt"
+                )
+            if isinstance(_tot_fcf, (int, float)) and _tot_fcf > 100:
+                flags.append(
+                    f"Total shareholder returns exceed {_basis} "
+                    f"({_tot_fcf:.0f}% of {_basis}, {_fy(_sr_mr)}) — "
+                    f"funded by balance sheet or debt"
+                )
+
+        # ── Margin / cost-ratio change flag (most recent YoY only) ───────────
+        # Replaces four per-sector in-loop versions that compared each period
+        # against the PREVIOUS loop iteration. Because this loop runs
+        # newest-first, that "previous" value was the NEWER period, so the
+        # comparison ran backwards: an expansion was reported as a
+        # compression, arrowed the wrong way, and labelled with the older
+        # year. It also fired on every historical transition, surfacing
+        # multi-year-old moves as current findings.
+        #
+        # periods[0] is the current period and periods[1] the prior one, so
+        # `prior -> current` is the only correct direction here.
+        if len(periods) >= 2:
+            _mr_gm, _pr_gm = periods[0], periods[1]
+            _gm_cur = (_parse_pct(gross_margin.get(_mr_gm, ""))
+                       if "%" in str(gross_margin.get(_mr_gm, "")) else None)
+            _gm_prv = (_parse_pct(gross_margin.get(_pr_gm, ""))
+                       if "%" in str(gross_margin.get(_pr_gm, "")) else None)
+            _gm_thr = RED_FLAG_THRESHOLDS["gross_margin_drop_bps"]
+            if _gm_cur is not None and _gm_prv is not None:
+                if sg == "energy":
+                    # Operating Cost Ratio: a RISE is the deterioration.
+                    _rise_bps = (_gm_cur - _gm_prv) * 10000
+                    if _rise_bps > _gm_thr:
+                        flags.append(
+                            f"Operating cost ratio rose {_rise_bps:.0f}bps: "
+                            f"{_pct(_gm_prv)} → {_pct(_gm_cur)} "
+                            f"({_fy(_pr_gm)}→{_fy(_mr_gm)}) — "
+                            f"cost inflation outpacing revenue"
+                        )
+                else:
+                    _drop_bps = (_gm_prv - _gm_cur) * 10000
+                    if _drop_bps > _gm_thr:
+                        _lbl = "NIM" if sg == "financials" else "Gross margin"
+                        _why = ("interest margin deterioration"
+                                if sg == "financials"
+                                else "exceeds warning threshold")
+                        flags.append(
+                            f"{_lbl} compressed {_drop_bps:.0f}bps: "
+                            f"{_pct(_gm_prv)} → {_pct(_gm_cur)} "
+                            f"({_fy(_pr_gm)}→{_fy(_mr_gm)}) — {_why} "
+                            f"({int(_gm_thr)}bps threshold)"
+                        )
+
         # Revenue CAGR — use financial_revenue for financials sector
         rev_series = inc.financial_revenue if sg == "financials" else inc.revenue
         revenue_cagr = "N/A"
@@ -1352,7 +2373,12 @@ class FundamentalAgent:
             "affo_uses_total_capex": any(
                 v.get("capex_is_total_proxy") for v in affo_components.values()
             ) if affo_components else False,
+            "working_capital":      working_capital,
+            "shareholder_returns":  shareholder_returns,
+            "sbc":                  sbc_metrics,
             "sector_group":         sg,
+            "suppressed_metrics":   _metric_suppression["suppress"],
+            "suppression_footnotes": _metric_suppression["footnotes"],
             "ownership":            ownership or {},
             "flags":                flags,
         }
@@ -1456,23 +2482,38 @@ class RiskAgent:
                                 f"EBIT barely covers debt service"
                             )
                 else:
-                    # Guard: if the company carries meaningful debt but interest
-                    # expense resolves to zero/None, this is a data gap (XBRL
-                    # tag missing), not genuinely zero interest expense.
-                    # Threshold: debt > 10% of total assets flags as suspect.
+                    # Cross-check guard: "No int. exp." is only a defensible
+                    # statement for a company with no debt. Any debt
+                    # outstanding means interest exists somewhere -- expensed,
+                    # capitalized into an asset, or filed under a concept the
+                    # waterfall didn't resolve -- so saying "no interest
+                    # expense" three rows above a debt schedule showing
+                    # billions outstanding is a contradiction, not a finding.
+                    # Applies to every filer with that combination.
                     _debt_material = (
                         debt and ta and debt > 0 and ta > 0
                         and (debt / ta) > 0.10
                     )
-                    if _debt_material:
-                        interest_cov[p] = "[DATA ERROR — int. exp. tag missing; verify]"
+                    if debt and debt > 0:
+                        interest_cov[p] = ("N/A (debt outstanding — interest may be "
+                                           "capitalized or tag unresolved)")
                         if i == 0:
-                            flags.append(
-                                f"Interest coverage data error ({_fy(p)}) — "
-                                f"interest expense tag did not resolve in XBRL but "
-                                f"debt/assets = {debt/ta*100:.0f}%. "
-                                f"Check IS InterestExpense tag or CF interest_paid fallback."
+                            print(
+                                f"[{ticker}] DATA FLAG: interest expense = 0 but "
+                                f"total debt = ${debt/1e6:,.0f}M — check capitalized "
+                                f"interest or missing tag"
                             )
+                            # Materially-levered filers additionally get a red
+                            # flag: at this debt load an unresolved interest
+                            # line is a reporting gap worth chasing, not just
+                            # a display caveat.
+                            if _debt_material:
+                                flags.append(
+                                    f"Interest coverage data error ({_fy(p)}) — "
+                                    f"interest expense tag did not resolve in XBRL but "
+                                    f"debt/assets = {debt/ta*100:.0f}%. "
+                                    f"Check IS InterestExpense tag or CF interest_paid fallback."
+                                )
                     else:
                         interest_cov[p] = "No int. exp."
 
@@ -1684,11 +2725,29 @@ class RiskAgent:
                     f"concentration risk"
                 )
 
+        # ── Estimated interest expense (fallback only) ──────────────────────
+        # When the filed interest-expense line didn't resolve but the debt
+        # note gives a weighted-average effective rate, debt x rate is a
+        # serviceable order-of-magnitude estimate. Clearly labelled as
+        # derived, never substituted into interest coverage itself.
+        est_interest_expense = None
+        _mr_p = periods[0] if periods else None
+        if _mr_p and str(interest_cov.get(_mr_p, "")).startswith("N/A (debt outstanding"):
+            _wtd = _parse_pct(credit_quality.get("wtd_avg_rate", ""))
+            _debt_mr = _safe_val(bal.total_debt, 0)
+            if _wtd and _debt_mr and _wtd > 0:
+                _est = _debt_mr * _wtd
+                est_interest_expense = (
+                    f"${_est/1e6:,.0f}M (from ${_debt_mr/1e6:,.0f}M debt x "
+                    f"{_wtd*100:.2f}% wtd avg rate — not a filed figure)"
+                )
+
         return {
             "periods":           periods,
             "current_ratio":     current_ratio,
             "quick_ratio":       quick_ratio,
             "interest_coverage": interest_cov,
+            "est_interest_expense": est_interest_expense,
             "de_ratio":          de_ratio,
             "debt_capital":      debt_capital,
             "debt_ebitda":       debt_ebitda,
@@ -2031,6 +3090,8 @@ class ValuationAgent:
 
         pe_hist  = {}
         pb_hist  = {}
+        eps_rows  = {}   # diluted EPS per period -- the denominator of P/E
+        bvps_rows = {}   # book value per share   -- the denominator of P/B
         pe_curr  = {}
         pb_curr  = {}
         ptbv     = {}
@@ -2038,6 +3099,9 @@ class ValuationAgent:
         ev_ebitda = {}
         ev_sales_current  = {}
         ev_ebitda_current = {}
+        fy_mcap_rows = {}   # FY-end market cap (FY-end price x shares), reused
+                            # by the shareholder-yield rows below rather than
+                            # recomputed there
         fy_ev    = {}   # FY-end Enterprise Value per period, hoisted and
                         # shared by EV/Sales, EV/EBITDA, EV/FCF, EV/CFO,
                         # FCF/EV, CFO/EV below (was computed inline twice)
@@ -2064,41 +3128,36 @@ class ValuationAgent:
         # yfinance doesn't cover (it only carries ~4 fiscal years) or when
         # the ticker has no yfinance income-statement data at all.
         ticker = getattr(profile, 'ticker', '')
-        _yf_diluted_by_year = _yfinance_diluted_shares_cache(ticker)
         _yf_shares_outstanding = _yfinance_info_cache(ticker).get('sharesOutstanding')
+
+        # ── Resolve every period's share count up front ─────────────────────
+        # Must run before any per-share or EV metric: the split detector
+        # needs the whole series to spot a ratio break, and any period it
+        # flags has its per-share/EV metrics suppressed rather than
+        # computed against a split-adjusted price.
+        shares_rows, shares_source = _resolve_diluted_shares(
+            profile, periods, ticker, current_price, market_cap
+        )
+        # Classify each discontinuity: unit errors are repaired in place,
+        # splits and unclassifiable breaks are suppressed.
+        _anomaly      = _resolve_share_anomalies(shares_rows, periods,
+                                                 shares_source, ticker)
+        shares_rows   = _anomaly["shares"]
+        contaminated  = _anomaly["contaminated"]
+        split_info    = _split_boundary_info(shares_rows, periods) if contaminated else {}
+        if contaminated:
+            print(f"[{ticker}] split detected: contaminated periods = "
+                  f"{sorted(contaminated)}")
+        else:
+            print(f"[{ticker}] split detection: no contamination "
+                  f"(contaminated periods = [])")
 
         for i, p in enumerate(periods):
             rev    = inc.revenue[i]
             ni     = inc.net_income[i]
             oi     = inc.operating_income[i]
 
-            # Primary: yfinance annual "Diluted Average Shares", matched by
-            # fiscal year. Falls back to the XBRL waterfall (with its own
-            # unit-correction chain below) for any period yfinance doesn't
-            # cover -- it only carries ~4 fiscal years vs. this pipeline's 5.
-            _yf_year = int(p[:4]) if p and p[:4].isdigit() else None
-            shares = _yf_diluted_by_year.get(_yf_year) if _yf_year is not None else None
-            if shares and shares > 0:
-                shares_source[p] = "yfinance"
-            else:
-                shares = inc.diluted_shares[i]
-                shares_source[p] = "xbrl"
-            # Fallback 1: derive shares from market cap / current price when
-            # neither yfinance nor the XBRL filing tag a diluted count (e.g. OXY).
-            if (not shares or shares == 0) and current_price and market_cap and current_price > 0:
-                shares = market_cap / current_price
-                shares_source[p] = "implied (mkt cap / price)"
-            # Fallback 2: unit correction — some filers (e.g. MCD) report shares
-            # in millions (721.9) rather than actual count (721,900,000).
-            # Detected by comparing to implied share count from market data:
-            # if XBRL shares is off by ~1,000,000x, scale it up.
-            if shares and shares > 0 and current_price and market_cap and current_price > 0:
-                implied = market_cap / current_price
-                if implied > 0:
-                    ratio = implied / shares
-                    if 500_000 <= ratio <= 2_000_000:
-                        shares = shares * 1_000_000
-            shares_rows[p] = shares
+            shares = shares_rows.get(p)
             eq     = bal.equity[i]
             pref   = bal.preferred_stock[i]
             debt   = bal.total_debt[i]
@@ -2108,6 +3167,12 @@ class ValuationAgent:
             eps       = _safe_div(ni, shares) if shares else "N/A"
             common_eq = (eq - pref) if (eq and pref) else eq
             bvps      = _safe_div(common_eq, shares) if shares else "N/A"
+
+            # Surfaced as their own rows: P/E and P/B below are just the
+            # FY-end price divided by these, so showing the multiple without
+            # its denominator hides the input the reader needs to sanity-check.
+            eps_rows[p]  = eps  if isinstance(eps, float)  else None
+            bvps_rows[p] = bvps if isinstance(bvps, float) else None
 
             # TBV = equity - goodwill - intangibles
             tbv  = (common_eq - gi) if (common_eq and gi is not None) else common_eq
@@ -2171,8 +3236,10 @@ class ValuationAgent:
             # inline, separately, in both the EV/Sales and EV/EBITDA blocks.
             if hist_p and shares and shares > 0:
                 fy_market_cap = hist_p * shares
+                fy_mcap_rows[p] = fy_market_cap
                 fy_ev[p] = fy_market_cap + (debt or 0) - (cash_i or 0)
             else:
+                fy_mcap_rows[p] = None
                 fy_ev[p] = None
 
             # ── EV/Sales ─────────────────────────────────────────────────
@@ -2335,6 +3402,29 @@ class ValuationAgent:
             else:
                 cfo_share_rows[p] = round(cfo_i / shares, 4) if (cfo_i is not None and _shares_plausible) else None
 
+            # ── Pre-split period suppression ─────────────────────────────
+            # This period's share count is as-filed (never retroactively
+            # split-adjusted) while its FY-end price is split-adjusted, so
+            # every metric that divides one by the other -- or that scales
+            # market cap off the share count -- is wrong by the split
+            # factor. Suppress rather than publish a number that is off by
+            # an order of magnitude. Non-per-share metrics (margins, ROE,
+            # ROA, turnover, revenue, CCC) are unaffected and untouched:
+            # they never see the share count.
+            if p in contaminated:
+                # EPS and BVPS divide by the same share count as the
+                # multiples, so they suppress on the same condition.
+                eps_rows[p] = bvps_rows[p]              = _PRESPLIT_NA
+                pe_hist[p]  = pb_hist[p] = ptbv[p]      = _PRESPLIT_NA
+                ev_sales[p] = ev_ebitda[p]              = _PRESPLIT_NA
+                ev_fcf_rows[p]  = ev_cfo_rows[p]        = _PRESPLIT_NA
+                fcf_ev_rows[p]  = cfo_ev_rows[p]        = _PRESPLIT_NA
+                cfo_share_rows[p]                       = _PRESPLIT_NA
+                fy_ev[p] = None
+                if sg == "real_estate":
+                    ev_ffo_rows[p]  = ffo_ev_rows[p]    = _PRESPLIT_NA
+                    ev_affo_rows[p] = affo_ev_rows[p]   = _PRESPLIT_NA
+
         # ── FCF/EV, CFO/EV, CFO/Share, EV/FCF, EV/CFO -- current-price basis ──
         # Current EV nets FY-end... i.e. today's cash (market_cap + debt -
         # cash), unlike ev_ebitda_current/ev_sales_current above, which
@@ -2436,6 +3526,69 @@ class ValuationAgent:
                     f"limited margin of safety if guidance misses"
                 )
 
+        # ── Shareholder yields + diluted share change ───────────────────────
+        # These live here rather than in FundamentalAgent because they need
+        # the FY-end market cap already derived above for fy_ev, and must
+        # honour the same split/unit-anomaly suppression as the other
+        # per-share metrics -- a yield computed against a pre-split share
+        # count is wrong by the split factor exactly as P/E is.
+        _sr = (fundamental or {}).get("shareholder_returns", {}) or {}
+        dividend_yield_rows = {}
+        buyback_yield_rows  = {}
+        total_yield_rows    = {}
+        share_change_rows   = {}
+        if _sr.get("available"):
+            for i, p in enumerate(periods):
+                if p in contaminated:
+                    dividend_yield_rows[p] = _PRESPLIT_NA
+                    buyback_yield_rows[p]  = _PRESPLIT_NA
+                    total_yield_rows[p]    = _PRESPLIT_NA
+                    share_change_rows[p]   = _PRESPLIT_NA
+                    continue
+                mcap = fy_mcap_rows.get(p)
+                div  = _sr.get("dividends_paid", {}).get(p)
+                nbb  = _sr.get("net_buyback", {}).get(p)
+                dy = (div / mcap * 100) if (div and mcap and mcap > 0) else None
+                by = (nbb / mcap * 100) if (nbb is not None and mcap and mcap > 0) else None
+                dividend_yield_rows[p] = dy
+                buyback_yield_rows[p]  = by
+                total_yield_rows[p] = ((dy or 0) + (by or 0)) if (dy is not None or by is not None) else None
+
+                # Diluted share count change vs. the prior year, on the
+                # anomaly-resolved series (shares_rows), not the raw XBRL
+                # vector -- otherwise a split boundary reads as a 900%
+                # "dilution" event.
+                prev_p = periods[i + 1] if (i + 1) < len(periods) else None
+                cur_sh = shares_rows.get(p)
+                prv_sh = shares_rows.get(prev_p) if prev_p else None
+                if (prev_p and prev_p not in contaminated
+                        and cur_sh and prv_sh and prv_sh > 0):
+                    share_change_rows[p] = (cur_sh - prv_sh) / prv_sh * 100
+                else:
+                    share_change_rows[p] = None
+
+            # Dilution flag, most recent period only.
+            _sc_mr = share_change_rows.get(periods[0]) if periods else None
+            if isinstance(_sc_mr, (int, float)) and _sc_mr > 2.0:
+                flags.append(
+                    f"Diluted share count +{_sc_mr:.1f}% YoY ({_fy(periods[0])}) — "
+                    f"dilution outpacing buybacks"
+                )
+
+        # ── YoY / CAGR trend annotations (non-multiple metrics only) ────────
+        # Only the yield and per-share metrics get a growth annotation:
+        # FCF/EV, CFO/EV, CFO/Share (+ FFO/EV, AFFO/EV for REITs). The
+        # multiples above (P/E, P/B, EV/EBITDA, EV/Sales, EV/FCF, EV/CFO)
+        # are point-in-time valuations, not growth series, so a YoY change
+        # or CAGR on them would not mean anything.
+        eps_trend       = _compute_yoy_and_cagr(eps_rows,       periods)
+        bvps_trend      = _compute_yoy_and_cagr(bvps_rows,      periods)
+        fcf_ev_trend    = _compute_yoy_and_cagr(fcf_ev_rows,    periods)
+        cfo_ev_trend    = _compute_yoy_and_cagr(cfo_ev_rows,    periods)
+        cfo_share_trend = _compute_yoy_and_cagr(cfo_share_rows, periods)
+        ffo_ev_trend    = _compute_yoy_and_cagr(ffo_ev_rows,    periods)
+        affo_ev_trend   = _compute_yoy_and_cagr(affo_ev_rows,   periods)
+
         # ── WACC ─────────────────────────────────────────────────────────────
         wacc = _compute_wacc(
             ticker     = profile.ticker,
@@ -2465,6 +3618,37 @@ class ValuationAgent:
             "ffo_ev":         {"current": curr_ffo_ev, "by_period": ffo_ev_rows},
             "ev_affo":        {"current": curr_ev_affo, "by_period": ev_affo_rows},
             "affo_ev":        {"current": curr_affo_ev, "by_period": affo_ev_rows},
+            "split_contamination": {
+                "periods": sorted(contaminated),
+                "factor":  split_info.get("factor"),
+                "direction": split_info.get("direction"),
+                "before":  split_info.get("before"),
+                "after":   split_info.get("after"),
+                "classes":     _anomaly["classes"],
+                "ratios":      _anomaly["ratios"],
+                "corrections": _anomaly["corrections"],
+            },
+            "shareholder_yields": {
+                "dividend_yield":   dividend_yield_rows,
+                "buyback_yield":    buyback_yield_rows,
+                "total_yield":      total_yield_rows,
+                "share_change_yoy": share_change_rows,
+            },
+            # "Current" reuses the most recent fiscal year's figure: there is
+            # no live EPS/BVPS series, and the Current P/E and P/B columns
+            # divide today's price by exactly these values -- so showing them
+            # here makes the multiple above reproducible from the table.
+            "eps":  {"current": eps_rows.get(periods[0]) if periods else None,
+                     "by_period": eps_rows},
+            "bvps": {"current": bvps_rows.get(periods[0]) if periods else None,
+                     "by_period": bvps_rows},
+            "eps_trend":       eps_trend,
+            "bvps_trend":      bvps_trend,
+            "fcf_ev_trend":    fcf_ev_trend,
+            "cfo_ev_trend":    cfo_ev_trend,
+            "cfo_share_trend": cfo_share_trend,
+            "ffo_ev_trend":    ffo_ev_trend,
+            "affo_ev_trend":   affo_ev_trend,
             "diluted_shares": {"current": curr_shares, "by_period": shares_rows},
             "shares_outstanding": {"current": curr_shares if curr_shares_source == "yfinance" else None,
                                     "by_period": {}},
@@ -4151,6 +5335,77 @@ class TrendCommentaryAgent:
                     f"(typical range 20-30x)"
                 )
 
+        # ── Working capital red flags (Section 2B) ──────────────────────────
+        # Skipped entirely for industries where Section 2B isn't rendered
+        # (banks, insurers, REITs) -- there is no operating working-capital
+        # cycle there to deteriorate.
+        _wc = fundamental.get("working_capital", {}) or {}
+        if _wc.get("mode") in ("full", "partial"):
+
+            def _wc_delta(key):
+                """(current, prior, current - prior) for a WC series, or Nones."""
+                cur = _wc.get(key, {}).get(mr)
+                prv = _wc.get(key, {}).get(pr)
+                if isinstance(cur, (int, float)) and isinstance(prv, (int, float)):
+                    return cur, prv, cur - prv
+                return None, None, None
+
+            # CCC lengthening > 30 days YoY
+            _ccc_c, _ccc_p, _ccc_d = _wc_delta("ccc")
+            if _ccc_d is not None and _ccc_d > 30:
+                flags.append(
+                    f"Cash conversion cycle lengthened {_ccc_d:.0f} days YoY "
+                    f"({_ccc_p:.0f} → {_ccc_c:.0f} days, {_fy(pr)}→{_fy(mr)}) — "
+                    f"receivables or inventory buildup vs payables"
+                )
+
+            # DSO expansion > 15 days YoY
+            _dso_c, _dso_p, _dso_d = _wc_delta("dso")
+            if _dso_d is not None and _dso_d > 15:
+                flags.append(
+                    f"DSO expanded {_dso_d:.0f} days YoY "
+                    f"({_dso_p:.0f} → {_dso_c:.0f} days, {_fy(pr)}→{_fy(mr)}) — "
+                    f"monitor receivables collection"
+                )
+
+            # DPO compression > 20 days YoY (decline, so delta is negative)
+            _dpo_c, _dpo_p, _dpo_d = _wc_delta("dpo")
+            if _dpo_d is not None and _dpo_d < -20:
+                flags.append(
+                    f"DPO compressed {abs(_dpo_d):.0f} days YoY "
+                    f"({_dpo_p:.0f} → {_dpo_c:.0f} days, {_fy(pr)}→{_fy(mr)}) — "
+                    f"reduced supplier financing benefit"
+                )
+
+            # CapEx consuming more than all operating cash flow
+            _capex_cfo = _wc.get("capex_pct_cfo", {}).get(mr)
+            if isinstance(_capex_cfo, (int, float)) and _capex_cfo > 100:
+                flags.append(
+                    f"CapEx exceeds operating cash flow "
+                    f"({_capex_cfo:.0f}% of CFO, {_fy(mr)}) — "
+                    f"free cash flow negative; external financing required"
+                )
+
+            # Negative NWC corroborated by a sub-1.0x current ratio
+            _nwc = _wc.get("nwc", {}).get(mr)
+            _cr_f = _parse_x(risk.get("current_ratio", {}).get(mr, ""))
+            if (isinstance(_nwc, (int, float)) and _nwc < 0
+                    and _cr_f is not None and _cr_f < 1.0):
+                flags.append(
+                    f"Negative NWC (-${abs(_nwc)/1e9:,.1f}B, {_fy(mr)}) confirmed by "
+                    f"current ratio below 1.0x ({_fmt_x(_cr_f)}) — "
+                    f"operational liquidity pressure"
+                )
+
+            # Inventory growing faster than revenue (>500bps of revenue YoY)
+            _inv_c, _inv_p, _inv_d = _wc_delta("inv_pct_rev")
+            if _inv_d is not None and _inv_d > 5.0:
+                flags.append(
+                    f"Inventory build {_inv_d*100:.0f}bps above revenue growth "
+                    f"({_inv_p:.1f}% → {_inv_c:.1f}% of revenue, "
+                    f"{_fy(pr)}→{_fy(mr)}) — monitor demand signals"
+                )
+
         # ── Guidance: prefer 8-K earnings release, fall back to 10-K MD&A ────
         guidance = []
         if earnings_text:
@@ -4171,6 +5426,12 @@ class TrendCommentaryAgent:
             if f not in seen:
                 seen.add(f)
                 deduped_flags.append(f)
+
+        # Collapse per-period threshold flags that repeat across years into
+        # one range line, then order by recency (current-period findings
+        # first, structural/multi-year last) with severity breaking ties.
+        deduped_flags = _collapse_repeated_flags(deduped_flags, periods)
+        deduped_flags = _sort_flags_by_recency(deduped_flags, periods)
 
         return {
             "narrative":           comments,

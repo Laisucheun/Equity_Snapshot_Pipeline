@@ -448,6 +448,7 @@ class EquityAnalystOrchestrator:
             sector     = sector,
             market_cap = processor.market_cap,
             financials_payload = processor.financials,
+            fine_industry = processor._fine_industry,
         )
 
         if not profile.periods:
@@ -869,6 +870,7 @@ class EquityAnalystOrchestrator:
             sector             = sector,
             market_cap         = processor.market_cap,
             financials_payload = processor.financials,
+            fine_industry      = processor._fine_industry,
         )
         if not profile.periods:
             raise RuntimeError(f"No financial periods parsed for {ticker}.")

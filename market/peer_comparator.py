@@ -76,6 +76,83 @@ logger = logging.getLogger(__name__)
 _MIN_PEERS  = 3    # below this, auto-derive results get supplemented by CSV
 _MAX_PEERS  = 6    # cap — keeps the table readable and limits yfinance calls
 
+# Session-scoped peer validation results: {TICKER: (is_valid, reason)}.
+# Peers recur constantly across a batch run (every semiconductor name shares
+# most of its peer set), and validation costs a .info fetch plus a CIK
+# lookup, so the answer is memoised for the life of the process. Deliberately
+# NOT persisted to the SQLite cache: listing status and SEC-filer status can
+# change between sessions, and a stale "invalid" would silently exclude a
+# name for a whole day.
+_PEER_VALIDATION_CACHE: dict[str, tuple[bool, str]] = {}
+
+
+def _cik_lookup(ticker: str):
+    """
+    Resolve a ticker to an SEC CIK using the same path the main ingestion
+    pipeline uses, so "is an SEC filer" means exactly what it means
+    everywhere else in this report.
+
+    No circular import: data.facts_processor imports only stdlib and
+    third-party packages, and nothing under market/ is imported by it.
+
+    Returns (cik_or_None, lookup_available). lookup_available is False when
+    the CIK mapping itself could not be loaded (e.g. set_identity() was
+    never called, as happens when this module is run standalone) -- in that
+    case the caller must NOT treat a None CIK as "not a filer", or every
+    peer would be dropped for an environmental reason.
+    """
+    try:
+        from data.facts_processor import _get_cik, _cik_cache, _load_cik_mapping
+    except Exception as e:
+        logger.debug("PeerComparisonLoader: CIK lookup unavailable — %s", e)
+        return None, False
+
+    try:
+        cik = _get_cik(ticker)
+    except Exception as e:
+        logger.debug("PeerComparisonLoader: CIK lookup failed for %s — %s", ticker, e)
+        return None, False
+
+    # _get_cik populates the module-level cache on first call; an empty cache
+    # afterwards means the mapping never loaded, not that the ticker is absent.
+    if not _cik_cache:
+        return None, False
+    return cik, True
+
+
+def _has_usgaap_facts(cik: str) -> tuple[bool, bool]:
+    """
+    Does this CIK have US-GAAP XBRL financial data in the SEC company facts
+    API? Returns (has_facts, check_available).
+
+    Holding a CIK is not the same as having comparable financials. Foreign
+    issuers registered with the SEC receive a CIK and a companyfacts entry,
+    but file under IFRS via 20-F/6-K -- or file no XBRL financial data at
+    all -- so their us-gaap section is empty. Confirmed live: SK hynix
+    (CIK 0002120882) returns a valid facts blob with ZERO us-gaap concepts,
+    where every genuine domestic peer returns 400-800.
+
+    This is the gate that actually matches what the report needs, and it is
+    the same bar the subject company must clear to be processed at all --
+    the orchestrator already refuses 20-F filers outright.
+    """
+    try:
+        from data.facts_processor import _get_facts
+    except Exception:
+        return False, False
+    try:
+        facts = _get_facts(cik)
+    except Exception as e:
+        logger.debug("PeerComparisonLoader: facts fetch failed for %s — %s", cik, e)
+        return False, False
+    if facts is None:
+        # Distinguish "no such filing data" (a real negative) from a
+        # transport failure, which _get_facts also reports as None. Treated
+        # as a real negative: a CIK the facts API does not serve has nothing
+        # to compare either way.
+        return False, True
+    return bool(facts.get("facts", {}).get("us-gaap")), True
+
 
 def _safe_float(value, ticker: str = "", field: str = "") -> float | None:
     """
@@ -154,9 +231,41 @@ class PeerComparisonLoader:
             logger.warning("PeerComparisonLoader: no .info data for subject %s", ticker)
             return {}
 
-        peer_tickers, industry, source = self._select_peers(ticker, subject_metrics, yf)
+        peer_tickers, industry, source, all_auto = self._select_peers(
+            ticker, subject_metrics, yf)
         if not peer_tickers:
             logger.warning("PeerComparisonLoader: no peers found for %s", ticker)
+            return {}
+
+        # ── Validate before comparing ────────────────────────────────────────
+        # A single bogus member materially moves a six-name median and every
+        # percentile derived from it, so candidates are filtered before any
+        # metric is computed.
+        n_derived = len(peer_tickers)
+        peer_tickers, dropped = self._validate_peers(peer_tickers, yf, ticker)
+        peer_basis = "peer_set"
+
+        # Too few names left to take a meaningful median over. Rather than
+        # reporting a "peer median" of one or two companies, widen to the
+        # full industry constituent list and take the median across whatever
+        # validates. yfinance exposes no direct industry-median endpoint, so
+        # this is the industry median as computed from its own constituents.
+        if len(peer_tickers) < _MIN_PEERS and all_auto:
+            already = set(peer_tickers) | {p for p, _ in dropped}
+            extra = [p for p in all_auto if p.upper() not in already][:20]
+            if extra:
+                more_valid, more_dropped = self._validate_peers(extra, yf, ticker)
+                n_derived += len(extra)
+                peer_tickers = peer_tickers + more_valid
+                dropped += more_dropped
+                if peer_tickers:
+                    peer_basis = "industry_median"
+
+        if len(peer_tickers) < _MIN_PEERS:
+            logger.warning(
+                "PeerComparisonLoader: only %d valid peer(s) for %s after "
+                "validation — suppressing peer table rather than reporting a "
+                "median over too few names", len(peer_tickers), ticker)
             return {}
 
         peer_metrics = {}
@@ -205,6 +314,10 @@ class PeerComparisonLoader:
             "industry":     industry,
             "peer_tickers": list(peer_metrics.keys()),
             "peer_source":  source,
+            "peer_basis":   peer_basis,
+            "n_derived":    n_derived,
+            "n_valid":      len(peer_metrics),
+            "dropped":      dropped,
             "metrics":      metrics_out,
             "_source": ("yfinance .info (all names, including subject) — "
                        "not this report's primary XBRL-sourced figures"),
@@ -212,8 +325,14 @@ class PeerComparisonLoader:
 
     # ── Peer selection ───────────────────────────────────────────────────────
 
-    def _select_peers(self, ticker: str, subject_metrics: dict, yf) -> tuple[list, str, str]:
-        """Returns (peer_tickers, industry_label, source_label)."""
+    def _select_peers(self, ticker: str, subject_metrics: dict, yf) -> tuple[list, str, str, list]:
+        """
+        Returns (peer_tickers, industry_label, source_label, all_auto).
+
+        all_auto is the UNCAPPED auto-derived industry constituent list,
+        kept so the caller can widen the sample if validation leaves too
+        few names to take a median over.
+        """
         industry_key = subject_metrics.get("_industryKey", "")
         industry_label = subject_metrics.get("_industry", "") or industry_key
 
@@ -247,7 +366,71 @@ class PeerComparisonLoader:
         else:
             peers, source = [], "none"
 
-        return peers, industry_label, source
+        return peers, industry_label, source, auto_peers
+
+    # ── Peer validation ──────────────────────────────────────────────────────
+
+    def _validate_peer(self, peer: str, yf, subject: str = "") -> tuple[bool, str]:
+        """
+        Is this candidate a usable peer for THIS report's comparisons?
+
+        Three gates, cheapest first:
+          1. yfinance returns a non-empty .info with a usable marketCap --
+             rules out symbols that don't resolve to a live listing at all.
+          2. The symbol resolves to a CIK, i.e. it is registered with the SEC.
+          3. That CIK actually has US-GAAP XBRL financial data.
+
+        Gate 3 exists because gate 2 is not sufficient on its own: a foreign
+        issuer can hold a CIK and still have no us-gaap facts (see
+        _has_usgaap_facts). Together they exclude foreign listings that are
+        genuine competitors -- SK hynix, TSMC's local line, Samsung. That is
+        correct for this pipeline rather than merely convenient: every figure
+        in the comparison is XBRL-derived from SEC filings, so such a name
+        could never be computed on the same basis as the rest of the table.
+        The reason is surfaced in the report footnote rather than the name
+        vanishing silently.
+
+        Results are memoised per session in _PEER_VALIDATION_CACHE.
+        """
+        peer = peer.upper()
+        if peer in _PEER_VALIDATION_CACHE:
+            return _PEER_VALIDATION_CACHE[peer]
+
+        result = (True, "")
+        metrics = self._get_metrics(peer, yf)
+
+        if not metrics:
+            result = (False, "no yfinance data")
+        else:
+            # Absent key (rather than None) means the row predates marketCap
+            # being cached; don't fail a peer on a cache-vintage artifact.
+            mcap = metrics.get("_marketCap", "__ABSENT__")
+            if mcap is None or (isinstance(mcap, (int, float)) and mcap <= 0):
+                result = (False, "no market cap — not a live listing")
+            else:
+                cik, available = _cik_lookup(peer)
+                if available and not cik:
+                    result = (False, "not an SEC filer (no CIK)")
+                elif cik:
+                    has_facts, checkable = _has_usgaap_facts(cik)
+                    if checkable and not has_facts:
+                        result = (False, "no US-GAAP XBRL data (foreign filer) — "
+                                         "nothing to compare on the same basis")
+
+        _PEER_VALIDATION_CACHE[peer] = result
+        return result
+
+    def _validate_peers(self, candidates: list, yf, subject: str) -> tuple[list, list]:
+        """Returns (valid_peers, [(peer, reason), ...])."""
+        valid, dropped = [], []
+        for p in candidates:
+            ok, reason = self._validate_peer(p, yf, subject)
+            if ok:
+                valid.append(p)
+            else:
+                dropped.append((p, reason))
+                print(f"[{subject}] peer dropped: {p} — {reason}")
+        return valid, dropped
 
     # ── yfinance .info fetch + cache ─────────────────────────────────────────
 
@@ -267,6 +450,9 @@ class PeerComparisonLoader:
         metrics = {key: _safe_float(info.get(key), ticker, key) for key in _METRIC_KEYS.values()}
         metrics["_industryKey"] = info.get("industryKey", "")
         metrics["_industry"]    = info.get("industry", "")
+        # Cached alongside the metrics so peer validation reuses this same
+        # .info fetch rather than issuing a second one per candidate.
+        metrics["_marketCap"]   = _safe_float(info.get("marketCap"), ticker, "marketCap")
         # Only cache if at least one real metric resolved — avoids caching
         # a dead/delisted ticker's empty result and treating it as final.
         if any(metrics.get(k) is not None for k in _METRIC_KEYS.values()):

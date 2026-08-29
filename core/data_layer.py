@@ -1296,6 +1296,39 @@ class CashFlowProfile(StatementProfile):
             'EquityExpenseIncome(BuybackIssued)', 'StockIssuanceProceeds',
         ])
 
+    # ── Shareholder returns ───────────────────────────────────────────────────
+    # _get_preferred_vector, not _get_max_vector: the candidates behind each
+    # of these labels are alternative tag names for the SAME concept, not
+    # nested magnitudes, so "first candidate that actually resolves" is
+    # correct and "largest wins" would silently prefer whichever variant
+    # happens to be biggest (e.g. a preferred-stock repurchase line over the
+    # common-stock one). Filers tag these with either sign depending on
+    # whether they present financing outflows as negative; callers take
+    # abs() rather than assuming a convention.
+
+    @property
+    def dividends_paid(self) -> np.ndarray:
+        """
+        Cash dividends paid (financing activities).
+
+        Falls back to CommonDividendsPaid -- the declared-dividend concepts
+        (DividendsCommonStockCash, Dividends, ...) -- for filers that tag no
+        cash-paid dividend concept at all. Declared and paid differ by the
+        timing of the last declaration, so this is an approximation used
+        only when the paid line is absent entirely.
+        """
+        return self._get_preferred_vector(['DividendsPaid', 'CommonDividendsPaid'])
+
+    @property
+    def share_repurchases(self) -> np.ndarray:
+        """Cash paid to repurchase shares (financing activities)."""
+        return self._get_preferred_vector(['StockRepurchasePayments'])
+
+    @property
+    def share_issuance(self) -> np.ndarray:
+        """Proceeds from issuing shares, incl. employee plans/option exercises."""
+        return self._get_preferred_vector(['StockIssuanceProceeds'])
+
     # ── Totals ────────────────────────────────────────────────────────────────
 
     @property
@@ -1400,10 +1433,14 @@ class CompanyFinancialProfile:
     """
 
     def __init__(self, ticker: str, sector: str, market_cap: float,
-                 financials_payload: dict):
-        self.ticker     = ticker.upper()
-        self.sector     = sector
-        self.market_cap = market_cap
+                 financials_payload: dict, fine_industry: str | None = None):
+        self.ticker        = ticker.upper()
+        self.sector        = sector
+        self.market_cap    = market_cap
+        # Fine-grained SIC-derived industry (e.g. "realestate", "banking") —
+        # set by FactsDataProcessor.load_data(); used by FundamentalAgent for
+        # sector-appropriate metric suppression. May be None (SIC unresolved).
+        self.fine_industry = fine_industry
 
         is_df = financials_payload.get("income_statement")
         if is_df is not None and not is_df.empty:
