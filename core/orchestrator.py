@@ -853,6 +853,10 @@ class EquityAnalystOrchestrator:
             "valuation":   dict,   # ValuationAgent output
             "commentary":  dict,   # TrendCommentaryAgent output
             "guidance":    dict,   # GuidanceAgent output
+            "track_analysis":        dict,  # GuidanceTracker output
+            "execution_quality":     dict,  # composite score input
+            "communication_quality": dict,  # composite score input
+            "management_quality":    dict,  # composite management score
         }
         Raises RuntimeError if data ingestion fails.
         """
@@ -919,6 +923,18 @@ class EquityAnalystOrchestrator:
             ex99_2=ex99_2,
             filing_date=_8k_date,
         )
+        track_analysis = self._guidance_tracker.analyse(
+            ticker, profile, self._transcript,
+            cache=self._cache,
+            earnings_text=earnings_text or "",
+        )
+        execution_quality     = _compute_execution_quality(track_analysis)
+        communication_quality = _compute_communication_quality(
+            guidance_analysis, track_analysis
+        )
+        management_quality    = _compute_management_quality(
+            track_analysis, execution_quality, communication_quality
+        )
         _shares = profile.income_statement.diluted_shares[0] if profile.periods else None
         ownership_data = self._ownership.fetch(ticker.upper(), shares_outstanding=_shares)
         insider_data   = self._insider.fetch(ticker.upper())
@@ -956,6 +972,10 @@ class EquityAnalystOrchestrator:
             "valuation":   valuation,
             "commentary":  commentary,
             "guidance":    guidance_analysis,
+            "track_analysis":        track_analysis,
+            "execution_quality":     execution_quality,
+            "communication_quality": communication_quality,
+            "management_quality":    management_quality,
             "ownership":   ownership_data,
             "insider":     insider_data,
             "short_interest": short_interest_data,

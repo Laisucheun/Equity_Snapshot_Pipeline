@@ -1251,6 +1251,28 @@ def _build_exec_summary(ticker, fundamental, valuation, commentary,
     return bullets, checks
 
 
+def check_summary_mismatches(ticker: str, checks: list) -> list[str]:
+    """
+    Every summary figure that has a table counterpart is asserted against
+    it, in the same spirit as the glossary gap check: a future edit that
+    reintroduces a parallel data path surfaces immediately instead of
+    silently contradicting the body of the report.
+
+    Shared by EquityBriefRenderer.render() (prints these as it goes) and
+    scripts/validate_summary_reconciliation.py (collects them without
+    rendering a PDF), so the two can never drift onto different rules for
+    what counts as a mismatch.
+    """
+    lines = []
+    for _name, _summary_val, _table_val in checks:
+        if _summary_val is None or _table_val is None:
+            continue
+        if abs(_summary_val - _table_val) > 0.01:
+            lines.append(f"[{ticker}] SUMMARY CHECK: {_name} "
+                         f"summary={_summary_val} table={_table_val} — MISMATCH")
+    return lines
+
+
 # ─────────────────────────────────────────────
 # Main renderer
 # ─────────────────────────────────────────────
@@ -1712,16 +1734,8 @@ class EquityBriefRenderer:
             track_analysis = track_analysis,
             risk           = risk,
         )
-        # Every summary figure that has a table counterpart is asserted
-        # against it, in the same spirit as the glossary gap check: a future
-        # edit that reintroduces a parallel data path surfaces immediately
-        # instead of silently contradicting the body of the report.
-        for _name, _summary_val, _table_val in _exec_checks:
-            if _summary_val is None or _table_val is None:
-                continue
-            if abs(_summary_val - _table_val) > 0.01:
-                print(f"[{ticker}] SUMMARY CHECK: {_name} "
-                      f"summary={_summary_val} table={_table_val} — MISMATCH")
+        for _line in check_summary_mismatches(ticker, _exec_checks):
+            print(_line)
         if _exec_bullets:
             t_exec_hdr = Table(
                 [[Paragraph("Executive Summary", styles["section"])]],

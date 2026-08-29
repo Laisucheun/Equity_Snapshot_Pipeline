@@ -74,76 +74,49 @@ def _resolve_universe(args) -> tuple[list[str], str]:
 
 # ── Per-ticker test ────────────────────────────────────────────────────────────
 
-def test_ticker(orch: EquityAnalystOrchestrator, ticker: str,
-                skip_financials: bool) -> dict | None:
+def _yfinance_consensus_gross_margin(ticker_obj) -> tuple:
     """
-    Compares pipeline gross margin (most recent FY) against yfinance
-    consensus. Never raises -- any exception is captured in "notes".
-
-    Returns None if the ticker was skipped (--skip-financials and the
-    yfinance-reported sector is Financials), otherwise a result dict.
+    Consensus gross margin from yfinance: prefer fiscal-year-matched annual
+    data (Gross Profit / Total Revenue from the same FY) over TTM, so the
+    comparison lines up with the pipeline's most-recent-FY figure. Split
+    out of test_ticker() -- unmodified -- so scripts/validate_universe.py
+    can call it on a ticker_obj it already fetched, without a second
+    yfinance round-trip for the same data.
     """
-    result = {
-        "ticker":            ticker,
-        "sector":            "",
-        "pipeline_gm":       None,
-        "consensus_gm":      None,
-        "consensus_source":  "",
-        "delta_pp":          None,
-        "match":             "❌",
-        "notes":             "",
-    }
-
-    # -- yfinance sector (lightweight; fetched before the full pipeline run
-    #    so --skip-financials can skip the expensive part) -----------------
-    ticker_obj = yf.Ticker(ticker)
-    try:
-        info = ticker_obj.info
-    except Exception as e:
-        info = {}
-        result["notes"] = f"yfinance fetch error: {e}"
-
-    sector = info.get("sector") or ""
-    result["sector"] = sector
-
-    is_financials = "financial" in sector.lower()
-    if is_financials and skip_financials:
-        return None
-
-    # -- Consensus gross margin: prefer fiscal-year-matched annual data
-    #    (Gross Profit / Total Revenue from the same FY) over TTM, so the
-    #    comparison lines up with the pipeline's most-recent-FY figure ------
     try:
         financials = ticker_obj.financials  # annual, columns are FY end dates
         if financials is not None and not financials.empty:
-            # Get most recent FY gross profit and total revenue
             latest_col = financials.columns[0]
             gross_profit = financials.loc["Gross Profit", latest_col] if "Gross Profit" in financials.index else None
             revenue = financials.loc["Total Revenue", latest_col] if "Total Revenue" in financials.index else None
             if gross_profit and revenue and revenue != 0:
-                consensus_gm = gross_profit / revenue
-                consensus_source = f"yfinance annual FY {str(latest_col)[:10]}"
-            else:
-                # Fall back to TTM grossMargins
-                consensus_gm = ticker_obj.info.get("grossMargins", None)
-                consensus_source = "yfinance TTM (fallback)"
-        else:
-            consensus_gm = ticker_obj.info.get("grossMargins", None)
-            consensus_source = "yfinance TTM (fallback)"
+                return gross_profit / revenue, f"yfinance annual FY {str(latest_col)[:10]}"
+        return ticker_obj.info.get("grossMargins", None), "yfinance TTM (fallback)"
     except Exception:
-        consensus_gm = ticker_obj.info.get("grossMargins", None)
-        consensus_source = "yfinance TTM (fallback)"
+        return ticker_obj.info.get("grossMargins", None), "yfinance TTM (fallback)"
 
-    result["consensus_gm"]     = consensus_gm
-    result["consensus_source"] = consensus_source
 
-    # -- Pipeline gross margin (data-only, no PDF) ---------------------------
-    try:
-        data = orch.run_data_only(ticker, sector=sector)
-    except Exception as e:
-        result["notes"] = f"pipeline error: {e}"
-        result["match"] = "❌"
-        return result
+def evaluate_gross_margin(ticker: str, sector: str, data: dict,
+                          consensus_gm, consensus_source: str,
+                          initial_notes: str = "") -> dict:
+    """
+    Pure classification step: compares the pipeline's most-recent-FY gross
+    margin (already resolved, in `data` from run_data_only()) against an
+    already-fetched yfinance consensus figure. Split out of test_ticker()
+    -- unmodified below this point -- so a shared multi-check loader
+    (scripts/validate_universe.py) can call it on data it already loaded,
+    without a second run_data_only() call.
+    """
+    result = {
+        "ticker":            ticker,
+        "sector":            sector,
+        "pipeline_gm":       None,
+        "consensus_gm":      consensus_gm,
+        "consensus_source":  consensus_source,
+        "delta_pp":          None,
+        "match":             "❌",
+        "notes":             initial_notes,
+    }
 
     fundamental = data.get("fundamental") or {}
     periods     = fundamental.get("periods") or []
@@ -207,6 +180,43 @@ def test_ticker(orch: EquityAnalystOrchestrator, ticker: str,
             result["notes"] = "investigate: possible segment subtotal or GAAP/adjusted gap"
 
     return result
+
+
+def test_ticker(orch: EquityAnalystOrchestrator, ticker: str,
+                skip_financials: bool) -> dict | None:
+    """
+    Standalone entry point (used when this script runs on its own): fetches
+    yfinance sector/consensus and runs the pipeline itself, then delegates
+    the actual comparison to evaluate_gross_margin(). Returns None if the
+    ticker was skipped (--skip-financials and the yfinance-reported sector
+    is Financials). Never raises -- any exception is captured in "notes".
+    """
+    ticker_obj = yf.Ticker(ticker)
+    notes = ""
+    try:
+        info = ticker_obj.info
+    except Exception as e:
+        info = {}
+        notes = f"yfinance fetch error: {e}"
+
+    sector = info.get("sector") or ""
+    is_financials = "financial" in sector.lower()
+    if is_financials and skip_financials:
+        return None
+
+    consensus_gm, consensus_source = _yfinance_consensus_gross_margin(ticker_obj)
+
+    try:
+        data = orch.run_data_only(ticker, sector=sector)
+    except Exception as e:
+        return {
+            "ticker": ticker, "sector": sector, "pipeline_gm": None,
+            "consensus_gm": consensus_gm, "consensus_source": consensus_source,
+            "delta_pp": None, "match": "❌", "notes": f"pipeline error: {e}",
+        }
+
+    return evaluate_gross_margin(ticker, sector, data, consensus_gm,
+                                 consensus_source, initial_notes=notes)
 
 
 # ── Reporting ──────────────────────────────────────────────────────────────────

@@ -137,46 +137,13 @@ def _note_for(metric: str, source: str, delta) -> str:
 
 # ── Per-ticker test ──────────────────────────────────────────────────────────────
 
-def test_ticker(orch: EquityAnalystOrchestrator, ticker: str, xbrl_only: bool) -> list | None:
+def _yfinance_consensus_cash_metrics(tk) -> dict:
     """
-    Returns a list of per-metric result dicts for this ticker, or None if
-    --xbrl-only was set and any of the 10 tracked cash_metrics sources is
-    'yfinance' (strictest mode -- drop the whole ticker rather than mix
-    partially-fallback-sourced figures into the run).
+    Consensus net_income/cfo/capex/fcf/ev_*/cfo_share from yfinance. Split
+    out of test_ticker() -- unmodified -- so scripts/validate_universe.py
+    can call it on a Ticker object it already fetched, without a second
+    yfinance round-trip for the same statements.
     """
-    # yfinance sector, same convention as validate_gross_margin.py -- the
-    # pipeline needs the real sector passed in for correct sector routing
-    # (an unrelated bug found/fixed earlier in this project's validation
-    # work: passing sector=None silently disables sector-aware logic).
-    try:
-        sector = yf.Ticker(ticker).info.get("sector")
-    except Exception:
-        sector = None
-
-    try:
-        result = orch.run_data_only(ticker, sector=sector)
-    except Exception as e:
-        return [{
-            "ticker": ticker, "sector": sector or "", "metric": m,
-            "pipeline_val": None, "yfinance_val": None, "delta_pct": None,
-            "match": "❌", "source": "none", "notes": f"pipeline error: {e}",
-        } for m in _METRICS]
-
-    cm = result.get("cash_metrics") or {}
-    ds = result.get("data_sources") or {}
-    valuation = result.get("valuation") or {}
-
-    if xbrl_only and any(ds.get(k) == "yfinance" for k in ds):
-        return None
-
-    ev_fcf_pipe    = (valuation.get("ev_fcf") or {}).get("current")
-    ev_cfo_pipe    = (valuation.get("ev_cfo") or {}).get("current")
-    fcf_ev_pipe    = (valuation.get("fcf_ev") or {}).get("current")
-    cfo_ev_pipe    = (valuation.get("cfo_ev") or {}).get("current")
-    cfo_share_pipe = (valuation.get("cfo_per_share") or {}).get("current")
-
-    # ── yfinance consensus (per spec) ──
-    tk = yf.Ticker(ticker)
     net_income_yf = cfo_yf = capex_yf = fcf_yf = None
     shares_yf = mktcap_yf = debt_yf = cash_yf = ev_yf = None
     ev_fcf_yf = ev_cfo_yf = fcf_ev_yf = cfo_ev_yf = cfo_share_yf = None
@@ -212,6 +179,49 @@ def test_ticker(orch: EquityAnalystOrchestrator, ticker: str, xbrl_only: bool) -
     except Exception:
         pass  # partial/missing yfinance data handled per-metric as "missing" below
 
+    return {
+        "net_income": net_income_yf, "cfo": cfo_yf, "capex": capex_yf, "fcf": fcf_yf,
+        "ev_fcf": ev_fcf_yf, "ev_cfo": ev_cfo_yf, "fcf_ev": fcf_ev_yf,
+        "cfo_ev": cfo_ev_yf, "cfo_share": cfo_share_yf,
+    }
+
+
+def evaluate_cash_metrics(ticker: str, sector: str, result: dict,
+                          yf_consensus: dict, xbrl_only: bool) -> list | None:
+    """
+    Pure classification step: compares the pipeline's cash_metrics/valuation
+    figures (already resolved, in `result` from run_data_only()) against
+    already-fetched yfinance consensus values. Split out of test_ticker()
+    -- unmodified below this point -- so a shared multi-check loader
+    (scripts/validate_universe.py) can call it on data it already loaded,
+    without a second run_data_only() or yfinance call. Returns None if
+    --xbrl-only was set and any of the 10 tracked cash_metrics sources is
+    'yfinance' (strictest mode -- drop the whole ticker rather than mix
+    partially-fallback-sourced figures into the run).
+    """
+    cm = result.get("cash_metrics") or {}
+    ds = result.get("data_sources") or {}
+    valuation = result.get("valuation") or {}
+
+    if xbrl_only and any(ds.get(k) == "yfinance" for k in ds):
+        return None
+
+    ev_fcf_pipe    = (valuation.get("ev_fcf") or {}).get("current")
+    ev_cfo_pipe    = (valuation.get("ev_cfo") or {}).get("current")
+    fcf_ev_pipe    = (valuation.get("fcf_ev") or {}).get("current")
+    cfo_ev_pipe    = (valuation.get("cfo_ev") or {}).get("current")
+    cfo_share_pipe = (valuation.get("cfo_per_share") or {}).get("current")
+
+    net_income_yf = yf_consensus.get("net_income")
+    cfo_yf        = yf_consensus.get("cfo")
+    capex_yf      = yf_consensus.get("capex")
+    fcf_yf        = yf_consensus.get("fcf")
+    ev_fcf_yf     = yf_consensus.get("ev_fcf")
+    ev_cfo_yf     = yf_consensus.get("ev_cfo")
+    fcf_ev_yf     = yf_consensus.get("fcf_ev")
+    cfo_ev_yf     = yf_consensus.get("cfo_ev")
+    cfo_share_yf  = yf_consensus.get("cfo_share")
+
     rows_spec = [
         ("net_income", cm.get("net_income"), net_income_yf, ds.get("net_income", "none")),
         ("cfo",        cm.get("cfo"),        cfo_yf,         ds.get("cfo", "none")),
@@ -240,6 +250,34 @@ def test_ticker(orch: EquityAnalystOrchestrator, ticker: str, xbrl_only: bool) -
             "notes": _note_for(metric, source, c["delta"]) or c["reason"],
         })
     return out
+
+
+def test_ticker(orch: EquityAnalystOrchestrator, ticker: str, xbrl_only: bool) -> list | None:
+    """
+    Standalone entry point (used when this script runs on its own): fetches
+    yfinance sector/consensus and runs the pipeline itself, then delegates
+    the actual comparison to evaluate_cash_metrics().
+    """
+    # yfinance sector, same convention as validate_gross_margin.py -- the
+    # pipeline needs the real sector passed in for correct sector routing
+    # (an unrelated bug found/fixed earlier in this project's validation
+    # work: passing sector=None silently disables sector-aware logic).
+    try:
+        sector = yf.Ticker(ticker).info.get("sector")
+    except Exception:
+        sector = None
+
+    try:
+        result = orch.run_data_only(ticker, sector=sector)
+    except Exception as e:
+        return [{
+            "ticker": ticker, "sector": sector or "", "metric": m,
+            "pipeline_val": None, "yfinance_val": None, "delta_pct": None,
+            "match": "❌", "source": "none", "notes": f"pipeline error: {e}",
+        } for m in _METRICS]
+
+    yf_consensus = _yfinance_consensus_cash_metrics(yf.Ticker(ticker))
+    return evaluate_cash_metrics(ticker, sector, result, yf_consensus, xbrl_only)
 
 
 # ── Reporting ──────────────────────────────────────────────────────────────────
