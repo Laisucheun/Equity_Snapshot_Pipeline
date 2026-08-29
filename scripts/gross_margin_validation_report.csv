@@ -1,524 +1,524 @@
-ticker,sector,pipeline_gm,consensus_gm,delta_pp,match,notes
-A,Healthcare,0.5243,0.5243235463442717,-0.0,✅,
-AAL,Industrials,,0.19166071788113412,,❌,pipeline N/A: N/A (not reported separately)
-AAPL,Technology,0.46909999999999996,0.4690516410716045,0.0,✅,
-ABBV,Healthcare,0.7023999999999999,0.7023544800523218,0.0,✅,
-ABNB,Consumer Cyclical,0.8295999999999999,0.8295890858589985,0.0,✅,
-ABT,Healthcare,0.5642,0.5641806533116765,0.0,✅,
-ACGL,Financial Services,,0.38758,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-ACN,Technology,0.3191,0.31913952808418106,-0.0,✅,
-ADBE,Technology,0.8926999999999999,0.8926753334174765,0.0,✅,
-ADI,Technology,0.6147,0.614669518890112,0.0,✅,
-ADM,Consumer Defensive,0.06269999999999999,0.06270166564925438,-0.0,✅,
-ADP,Technology,0.4642,0.46416432014726117,0.0,✅,
-ADSK,Technology,0.9098,0.9097973910630031,0.0,✅,
-AEE,Utilities,,0.47403113990226164,,➖,DEFINITION_MISMATCH — excluded from KPI
-AEP,Utilities,,0.6100749680014628,,➖,DEFINITION_MISMATCH — excluded from KPI
-AES,Utilities,,0.1807406196354124,,➖,DEFINITION_MISMATCH — excluded from KPI
-AFL,Financial Services,,0.50888,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AIG,Financial Services,,0.35087,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AIZ,Financial Services,,0.13272999,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AJG,Financial Services,,0.4257638789269832,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AKAM,Technology,,0.589486416320614,,❌,pipeline N/A: N/A
-ALB,Basic Materials,0.13,0.13003183326841972,-0.0,✅,
-ALGN,Healthcare,0.6718999999999999,0.6718803439138491,0.0,✅,
-ALL,Financial Services,,0.36800998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-ALLE,Industrials,0.452,0.4519705947434416,0.0,✅,
-AMAT,Technology,0.4867,0.4867456288776086,-0.0,✅,
-AMCR,Consumer Cyclical,0.19949999999999998,0.19952352590827874,-0.0,✅,
-AMD,Technology,0.49520000000000003,0.4951644100580271,0.0,✅,
-AME,Industrials,0.3604,0.3604103759487083,-0.0,✅,
-AMGN,Healthcare,0.6725,0.6724714973742211,0.0,✅,
-AMP,Financial Services,,0.54932,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AMT,Real Estate,,0.7418315389962986,,➖,DEFINITION_MISMATCH — excluded from KPI
-AMZN,Consumer Cyclical,0.5029,0.5028566486824266,0.0,✅,
-ANET,Technology,0.6406000000000001,0.6405609780472368,0.0,✅,
-ANSS,,0.89,,,❌,yfinance no grossMargins
-AON,Financial Services,,0.47703858913916536,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AOS,Industrials,0.3883,0.38833481280350896,-0.0,✅,
-APA,Energy,,0.40560538116591927,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-APD,Basic Materials,0.3141,0.3141319066568084,-0.0,✅,
-APH,Technology,0.3688,0.3688162219037268,-0.0,✅,
-APO,Financial Services,,0.9549751942338295,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-APTV,Consumer Cyclical,0.1911,0.19109716638886165,0.0,✅,
-ARE,Real Estate,,0.686740176729736,,➖,DEFINITION_MISMATCH — excluded from KPI
-ARM,Technology,0.9754,0.9754065040650407,-0.0,✅,
-ASML,Technology,0.5283,0.5282958799778371,0.0,✅,
-ATO,Utilities,,0.5813101043962529,,➖,DEFINITION_MISMATCH — excluded from KPI
-AVB,Real Estate,,0.6313662037836372,,➖,DEFINITION_MISMATCH — excluded from KPI
-AVGO,Technology,0.6777,0.6776652527118193,0.0,✅,
-AVY,Consumer Cyclical,0.2875,0.28753881768392525,-0.0,✅,
-AWK,Utilities,,0.6071984435797665,,➖,DEFINITION_MISMATCH — excluded from KPI
-AXON,Industrials,0.5965,nan,nan,❌,
-AXP,Financial Services,,0.62338,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-AZN,Healthcare,0.8190000000000001,0.8189788726399837,0.0,✅,
-AZO,Consumer Cyclical,0.5262,0.5262486365892685,-0.0,✅,
-BA,Industrials,,0.04794160714485318,,❌,pipeline N/A: N/A (not reported separately)
-BAC,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-BALL,Consumer Cyclical,0.1959,0.19588177190183118,0.0,✅,
-BAX,Healthcare,0.3005,0.3005158306652437,-0.0,✅,
-BBWI,Consumer Cyclical,0.4374,0.4373885612398848,0.0,✅,
-BBY,Consumer Cyclical,0.2248,0.22482070470845025,-0.0,✅,
-BCR,,,,,❌,pipeline N/A: N/A
-BDX,Healthcare,0.45439999999999997,0.45444139194139194,-0.0,✅,
-BEN,Financial Services,,0.8034364417891389,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-BF-B,Consumer Defensive,0.6053999999999999,0.6053971486761711,0.0,✅,
-BG,Consumer Defensive,0.048499999999999995,0.04847218075047278,0.0,✅,
-BIIB,Healthcare,0.7569,0.7569207125957981,-0.0,✅,
-BIO,Healthcare,0.5186999999999999,0.5186977392381542,0.0,✅,
-BK,,,,,❌,pipeline N/A: N/A (no XBRL tag)
-BKNG,Consumer Cyclical,,0.87227994,,❌,pipeline N/A: N/A (not reported separately)
-BKR,Energy,,0.23596437457180977,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-BLDR,Industrials,0.3039,0.30385669120678144,0.0,✅,
-BLK,Financial Services,,0.4670465807730426,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-BMY,Healthcare,0.7108,0.7108413735864716,-0.0,✅,
-BR,Technology,0.3178,0.31779638347956346,0.0,✅,
-BRK-B,Financial Services,,0.30332002,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-BRO,Financial Services,,0.4907166406385563,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-BSX,Healthcare,0.6901,0.6900966424230348,0.0,✅,
-BX,Financial Services,,1.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-C,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CAG,Consumer Defensive,0.23920000000000002,0.23918593107360658,0.0,✅,
-CAH,Healthcare,0.0384,0.03669724770642202,0.17,✅,
-CARR,Industrials,,0.25861038304133904,,❌,pipeline N/A: N/A (not reported separately)
-CAT,Industrials,,0.3177736022133779,,❌,pipeline N/A: N/A (not reported separately)
-CB,Financial Services,,0.31129998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CBOE,Financial Services,,0.4090407704382504,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CBRE,Real Estate,,0.18658446362515413,,➖,DEFINITION_MISMATCH — excluded from KPI
-CCEP,Consumer Defensive,0.35600000000000004,0.35596382948184296,0.0,✅,
-CCI,Real Estate,,0.7408536585365854,,➖,DEFINITION_MISMATCH — excluded from KPI
-CCL,Consumer Cyclical,,0.40096164682017954,,❌,pipeline N/A: N/A
-CDNS,Technology,,0.8636432203164237,,❌,pipeline N/A: N/A (not reported separately)
-CDW,Technology,0.2173,0.21732867762808764,-0.0,✅,
-CE,Basic Materials,0.2045,0.20452640402347025,-0.0,✅,
-CEG,Utilities,,0.18380135510907453,,➖,DEFINITION_MISMATCH — excluded from KPI
-CF,Basic Materials,0.3845,0.3845285149632976,-0.0,✅,
-CFG,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CHD,Consumer Defensive,0.4473,0.447317513541398,-0.0,✅,
-CHRW,Industrials,0.049,0.08373509796206598,-3.47,✅,
-CHTR,Communication Services,,0.5653777339613685,,❌,pipeline N/A: N/A (not reported separately)
-CI,Healthcare,0.09300000000000001,0.0895148509789888,0.35,✅,
-CINF,Financial Services,,0.31066,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CL,Consumer Defensive,0.6011,0.6010695711902659,0.0,✅,
-CLX,Consumer Defensive,0.4523,0.4232142857142857,2.91,✅,
-CMCSA,Communication Services,,0.7174695045551182,,❌,pipeline N/A: N/A (not reported separately)
-CME,Financial Services,,0.8609023709474588,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-CMG,Consumer Cyclical,0.7043,0.253757190098847,45.05,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-CMI,Industrials,0.2529,0.25292545292545293,-0.0,✅,
-CMS,Utilities,,0.4152711090291603,,➖,DEFINITION_MISMATCH — excluded from KPI
-CNC,Healthcare,0.1766,0.07119423751264266,10.54,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-CNP,Utilities,,0.45057176445441915,,➖,DEFINITION_MISMATCH — excluded from KPI
-COF,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-COO,Healthcare,0.6554000000000001,0.6553855928061773,0.0,✅,
-COP,Energy,0.3787,0.2508821932681867,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-COR,Healthcare,0.035699999999999996,0.03572165157521616,-0.0,✅,
-COST,Consumer Defensive,0.1284,0.12843206714262356,-0.0,✅,
-CPAY,Technology,,0.7859781914286339,,❌,pipeline N/A: N/A (not reported separately)
-CPB,Consumer Defensive,0.3042,0.3042036477128645,-0.0,✅,
-CPRT,Industrials,,0.4518317144247914,,❌,pipeline N/A: N/A (not reported separately)
-CPT,Real Estate,,0.6140965870671554,,➖,DEFINITION_MISMATCH — excluded from KPI
-CRL,Healthcare,,0.3295514598611041,,❌,pipeline N/A: N/A (not reported separately)
-CRM,Technology,0.7768,0.7767609873570138,0.0,✅,
-CRWD,Technology,0.7467,0.7466899972049074,0.0,✅,
-CSCO,Technology,0.6494,0.6493804497475907,0.0,✅,
-CSGP,Real Estate,,0.7887280566676933,,➖,DEFINITION_MISMATCH — excluded from KPI
-CSX,Industrials,,0.3324581322736304,,❌,pipeline N/A: N/A (not reported separately)
-CTAS,Industrials,0.5004,0.5066945494893322,-0.63,✅,
-CTLT,,0.2175,,,❌,yfinance no grossMargins
-CTRA,,0.8203,,,❌,yfinance no grossMargins
-CTSH,Technology,0.3372,0.33717074095129806,0.0,✅,
-CTVA,Basic Materials,0.4729,0.4729038561002241,-0.0,✅,
-CVS,Healthcare,0.1377,0.13769346899894794,0.0,✅,
-CVX,Energy,0.5725,0.30410124056562854,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-CZR,Consumer Cyclical,,0.5,,❌,pipeline N/A: N/A
-D,Utilities,,0.49018538713195203,,➖,DEFINITION_MISMATCH — excluded from KPI
-DAL,Industrials,,0.24165141089577677,,❌,pipeline N/A: N/A
-DAY,,0.46140000000000003,,,❌,yfinance no grossMargins
-DD,Basic Materials,0.345,0.34501387063804934,-0.0,✅,
-DDOG,Technology,0.7996,0.7995549081775629,0.0,✅,
-DE,Industrials,,0.3648270457852905,,❌,pipeline N/A: N/A (not reported separately)
-DECK,Consumer Cyclical,0.5770000000000001,0.5770385958654284,-0.0,✅,
-DFS,,,,,❌,pipeline N/A: N/A (no XBRL tag)
-DG,Consumer Defensive,0.3066,0.30660930299520633,-0.0,✅,
-DGX,Healthcare,0.3321,0.3321250566379701,-0.0,✅,
-DHI,Consumer Cyclical,0.237,0.23696657557284004,0.0,✅,
-DHR,Healthcare,0.5911,0.5911348095083034,-0.0,✅,
-DIS,Communication Services,,0.3776436325125761,,❌,pipeline N/A: N/A (not reported separately)
-DLR,Real Estate,,0.5539220690327601,,➖,DEFINITION_MISMATCH — excluded from KPI
-DLTR,Consumer Defensive,0.3632,0.364046610824344,-0.08,✅,
-DOC,Real Estate,,0.5999666254740458,,➖,DEFINITION_MISMATCH — excluded from KPI
-DOV,Industrials,0.39770000000000005,0.397669541607976,0.0,✅,
-DOW,Basic Materials,0.0634,0.06337570056044836,0.0,✅,
-DPZ,Consumer Cyclical,0.3995,0.3995065581051313,-0.0,✅,
-DRI,Consumer Cyclical,0.203,0.21667713781801393,-1.37,✅,
-DTE,Utilities,,0.3030858732768433,,➖,DEFINITION_MISMATCH — excluded from KPI
-DUK,Utilities,,0.5117721872382666,,➖,DEFINITION_MISMATCH — excluded from KPI
-DVA,Healthcare,,0.32247824884562265,,❌,pipeline N/A: N/A (not reported separately)
-DVN,Energy,,0.2554689318128927,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-DXC,Technology,0.2397,0.23971844353052832,-0.0,✅,
-DXCM,Healthcare,0.601,0.601008151008151,-0.0,✅,
-EA,Communication Services,0.7897,0.789669366617979,0.0,✅,
-EBAY,Consumer Cyclical,0.7145,0.7145045045045045,-0.0,✅,
-ECL,Basic Materials,0.4446,0.44464343456955946,-0.0,✅,
-ED,Utilities,,0.5325097529258778,,➖,DEFINITION_MISMATCH — excluded from KPI
-EFX,Industrials,0.5645,0.5644744423409334,0.0,✅,
-EG,Financial Services,,0.15281,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-EIX,Utilities,,0.48071646736035617,,➖,DEFINITION_MISMATCH — excluded from KPI
-EL,Consumer Defensive,0.755,0.7550003322479899,-0.0,✅,
-ELV,Healthcare,0.1493,0.2599,-11.06,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-EMN,Basic Materials,0.2107,0.21069469835466179,0.0,✅,
-EMR,Industrials,0.5284,0.528363676731794,0.0,✅,
-ENPH,Technology,0.4664,0.4664025770798752,-0.0,✅,
-EOG,Energy,,0.6337791161101762,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-EPAM,Technology,0.2883,0.28834613388611,-0.0,✅,
-EQIX,Real Estate,,0.5109037647824671,,➖,DEFINITION_MISMATCH — excluded from KPI
-EQR,Real Estate,,0.6287840271962234,,➖,DEFINITION_MISMATCH — excluded from KPI
-EQT,Energy,0.1772,0.4587503233784062,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-ES,Utilities,,0.8469225179674922,,➖,DEFINITION_MISMATCH — excluded from KPI
-ESS,Real Estate,,0.6778342062526989,,➖,DEFINITION_MISMATCH — excluded from KPI
-ETN,Industrials,0.3759,0.3758743806470417,0.0,✅,
-ETR,Utilities,,0.47716913810993794,,➖,DEFINITION_MISMATCH — excluded from KPI
-ETSY,Consumer Cyclical,0.7164,0.7163864344073403,0.0,✅,
-EVRG,Utilities,,0.522661701556629,,➖,DEFINITION_MISMATCH — excluded from KPI
-EW,Healthcare,0.7801,0.7801107521919705,-0.0,✅,
-EXC,Utilities,,0.42930167367466404,,➖,DEFINITION_MISMATCH — excluded from KPI
-EXPD,Industrials,0.0951,0.1292198786720654,-3.41,✅,
-EXPE,Consumer Cyclical,,0.9011742347111925,,❌,pipeline N/A: N/A (not reported separately)
-EXR,Real Estate,,0.7077694370639951,,➖,DEFINITION_MISMATCH — excluded from KPI
-F,Consumer Cyclical,0.0684,0.008971148146763712,5.94,⚠️,
-FANG,Energy,,0.3497220175497354,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-FAST,Industrials,0.4501,0.45011889518931775,-0.0,✅,
-FCX,Basic Materials,0.2534,0.28157437777349026,-2.82,✅,
-FDS,Financial Services,,0.5271743531167035,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-FDX,Industrials,,0.21771537162162163,,❌,pipeline N/A: N/A (not reported separately)
-FE,Utilities,,0.6530815109343936,,➖,DEFINITION_MISMATCH — excluded from KPI
-FFIV,Technology,0.8140999999999999,0.8141306290785966,-0.0,✅,
-FI,,,,,❌,pipeline N/A: N/A (not reported separately)
-FICO,Technology,,0.8223278377432166,,❌,pipeline N/A: N/A (not reported separately)
-FIS,Technology,0.3686,0.36864287721270017,-0.0,✅,
-FISV,,,0.5936394092388997,,❌,pipeline N/A: N/A (not reported separately)
-FITB,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-FLT,,,,,❌,pipeline N/A: N/A (not reported separately)
-FMC,Basic Materials,0.37,0.3700178808329007,-0.0,✅,
-FOX,Communication Services,,0.36629,,❌,pipeline N/A: N/A (not reported separately)
-FOXA,Communication Services,,0.36629,,❌,pipeline N/A: N/A (not reported separately)
-FRT,Real Estate,,0.6724853886901621,,➖,DEFINITION_MISMATCH — excluded from KPI
-FSLR,Technology,0.40619999999999995,0.4062437732020073,-0.0,✅,
-FTNT,Technology,0.8046,0.8045620330607682,0.0,✅,
-FTV,Technology,0.635,0.6350171912192542,-0.0,✅,
-GD,Industrials,,0.1513035204567079,,❌,pipeline N/A: N/A (not reported separately)
-GDDY,Technology,0.6361,0.6361414635131587,-0.0,✅,
-GE,Industrials,,0.3148620652055392,,❌,pipeline N/A: N/A (not reported separately)
-GEHC,Healthcare,0.39990000000000003,0.39985454545454546,0.0,✅,
-GEN,Technology,0.7846,0.7846,0.0,✅,
-GEV,Industrials,0.1979,0.19793527372071032,-0.0,✅,
-GFS,Technology,0.2489,0.24885878368428802,0.0,✅,
-GILD,Healthcare,0.7883,0.7882616670063175,0.0,✅,
-GIS,Consumer Defensive,0.33630000000000004,0.33627324338113174,0.0,✅,
-GL,Financial Services,,0.33905998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-GLW,Technology,0.35969999999999996,0.35965192910614885,0.0,✅,
-GM,Consumer Cyclical,,0.06267464422572817,,❌,pipeline N/A: N/A (not reported separately)
-GNRC,Industrials,0.3829,0.3829129750041992,-0.0,✅,
-GOOG,Communication Services,0.5965,0.5965231508603998,-0.0,✅,
-GOOGL,Communication Services,0.5965,0.5965231508603998,-0.0,✅,
-GPC,Consumer Cyclical,0.3679,0.3679278239578939,-0.0,✅,
-GPN,Industrials,0.7256999999999999,0.7257442954586096,-0.0,✅,
-GRMN,Technology,0.5874,0.5874393538958355,-0.0,✅,
-GS,Financial Services,,0.82075995,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-GWW,Industrials,0.3906,0.3906476424032995,-0.0,✅,
-HAL,Energy,,0.1570501262170934,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-HAS,Consumer Cyclical,0.6346,0.645821368557633,-1.12,✅,
-HBAN,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-HCA,Healthcare,,0.415,,❌,pipeline N/A: N/A (not reported separately)
-HD,Consumer Cyclical,0.3332,0.33315521334928316,0.0,✅,
-HES,,,,,❌,pipeline N/A: N/A (not reported separately)
-HIG,Financial Services,,0.37868,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-HII,Industrials,,0.1269625120153797,,❌,pipeline N/A: N/A (not reported separately)
-HLT,Consumer Cyclical,,0.2820001661267547,,❌,pipeline N/A: N/A (not reported separately)
-HOLX,,0.61,,,❌,yfinance no grossMargins
-HON,Industrials,0.3693,0.3693445862934672,-0.0,✅,
-HPE,Technology,,0.3025717284814556,,❌,pipeline N/A: N/A (not reported separately)
-HPQ,Technology,0.20600000000000002,0.20602224432588842,-0.0,✅,
-HRL,Consumer Defensive,0.1563,0.1562688746885883,0.0,✅,
-HSIC,Healthcare,0.3114,0.3113622572815534,0.0,✅,
-HST,Real Estate,,0.5260058881256133,,➖,DEFINITION_MISMATCH — excluded from KPI
-HSY,Consumer Defensive,0.33549999999999996,0.33548561069861765,0.0,✅,
-HUBB,Industrials,0.3532,0.35316360401053964,0.0,✅,
-HUM,Healthcare,0.1454,0.13653,0.89,✅,
-HWM,Industrials,0.3417,0.34173533688802715,-0.0,✅,
-IBM,Technology,0.5819,0.5818674484719261,0.0,✅,
-ICE,Financial Services,,0.5615506329113924,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-IDXX,Healthcare,0.618,0.6179747110743262,0.0,✅,
-IEX,Industrials,0.4451,0.44506146059291396,0.0,✅,
-IFF,Basic Materials,0.3616,0.3616161616161616,-0.0,✅,
-ILMN,Healthcare,0.6607999999999999,0.6608335252129864,-0.0,✅,
-INCY,Healthcare,,0.9276244922919403,,❌,pipeline N/A: N/A (not reported separately)
-INTC,Technology,0.3477,0.34766238434904356,0.0,✅,
-INTU,Technology,,0.7956560989857151,,❌,pipeline N/A: N/A (not reported separately)
-INVH,Real Estate,,0.5842455343795616,,➖,DEFINITION_MISMATCH — excluded from KPI
-IP,Consumer Cyclical,0.2961,0.29605652872979604,0.0,✅,
-IPG,,0.029500000000000002,,,❌,yfinance no grossMargins
-IQV,Healthcare,0.3329,0.33292458614347026,-0.0,✅,
-IR,Industrials,0.4361,0.4360663451358664,0.0,✅,
-IRM,Real Estate,,0.5538108739872296,,➖,DEFINITION_MISMATCH — excluded from KPI
-ISRG,Healthcare,0.66,0.6599600584220096,0.0,✅,
-IT,Technology,0.6839,0.6839304958762401,-0.0,✅,
-ITW,Industrials,0.441,0.44097481924707055,0.0,✅,
-IVZ,Financial Services,,0.3523858807294852,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-J,Industrials,,0.24812866533003963,,❌,pipeline N/A: N/A
-JBHT,Industrials,,0.13306202400580844,,❌,pipeline N/A: N/A
-JBL,Technology,0.0888,0.08878598751761627,0.0,✅,
-JCI,Industrials,0.3641,0.3641295134768605,-0.0,✅,
-JKHY,Technology,0.42710000000000004,0.4271233635668601,-0.0,✅,
-JNJ,Healthcare,0.6788,0.6787871710212011,0.0,✅,
-JNPR,,0.5876,,,❌,yfinance no grossMargins
-JPM,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-K,,0.3565,,,❌,yfinance no grossMargins
-KDP,Consumer Defensive,0.542,0.5420104800337289,-0.0,✅,
-KEY,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-KEYS,Technology,0.6208,0.6208372093023256,-0.0,✅,
-KHC,Consumer Defensive,0.3331,0.33313286825435007,-0.0,✅,
-KIM,Real Estate,,0.6905149066686105,,➖,DEFINITION_MISMATCH — excluded from KPI
-KLAC,Technology,0.613,0.6130145227989652,-0.0,✅,
-KMB,Consumer Defensive,0.3601,0.36012646683285704,-0.0,✅,
-KMI,Energy,,0.5287240951762414,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-KMX,Consumer Cyclical,0.1084,0.10844166740626598,-0.0,✅,
-KO,Consumer Defensive,0.6163000000000001,0.6162574831563797,0.0,✅,
-KR,Consumer Defensive,,0.23300957722057408,,❌,pipeline N/A: N/A (not reported separately)
-KVUE,Consumer Defensive,0.5813,0.581327691087014,-0.0,✅,
-L,Financial Services,,0.36290002,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-LDOS,Technology,0.1765,0.18044718760917666,-0.39,✅,
-LEN,Consumer Cyclical,,0.09907659458435202,,❌,pipeline N/A: N/A (not reported separately)
-LH,Healthcare,0.2876,0.28759936065139013,0.0,✅,
-LHX,Industrials,0.25730000000000003,0.25726046192545166,0.0,✅,
-LIN,Basic Materials,0.48829999999999996,0.4883481433531454,-0.0,✅,
-LKQ,Consumer Cyclical,0.3857,0.3856860303274485,0.0,✅,
-LLY,Healthcare,0.8304,0.8304361834333144,-0.0,✅,
-LMT,Industrials,0.1015,0.10152169278328536,-0.0,✅,
-LNC,Financial Services,,0.27076998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-LNT,Utilities,,0.45667125171939477,,➖,DEFINITION_MISMATCH — excluded from KPI
-LOW,Consumer Cyclical,0.3348,0.334758825301903,0.0,✅,
-LRCX,Technology,0.5047,0.5046900724797688,0.0,✅,
-LULU,Consumer Cyclical,0.5660000000000001,0.566005440167168,-0.0,✅,
-LUV,Industrials,,0.1744289634037701,,❌,pipeline N/A: N/A
-LVS,Consumer Cyclical,,0.49788737804409616,,❌,pipeline N/A: N/A (not reported separately)
-LW,Consumer Defensive,0.20559999999999998,0.20563192837590552,-0.0,✅,
-LYB,Basic Materials,0.0855,0.0854641329220973,0.0,✅,
-LYV,Communication Services,0.2555,0.25546392133835705,0.0,✅,
-MA,Financial Services,,0.7788722515324327,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MAA,Real Estate,,0.3052089378333332,,➖,DEFINITION_MISMATCH — excluded from KPI
-MAR,Consumer Cyclical,,0.1994195371572596,,❌,pipeline N/A: N/A (not reported separately)
-MAS,Industrials,0.3543,0.3542713567839196,0.0,✅,
-MCD,Consumer Cyclical,,0.5740747628789288,,❌,pipeline N/A: N/A (not reported separately)
-MCHP,Technology,0.5772999999999999,0.5773482421336276,-0.0,✅,
-MCK,Healthcare,0.0361,0.036065736311132045,0.0,✅,
-MCO,Financial Services,,0.7443638248250842,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MDB,Technology,0.7175,0.7174856532417241,0.0,✅,
-MDLZ,Consumer Defensive,0.2838,0.2837532760723461,0.0,✅,
-MDT,Healthcare,0.6502,0.6501759982400176,0.0,✅,
-MELI,Consumer Cyclical,0.14880000000000002,0.44502128543245767,-29.62,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-MET,Financial Services,,0.23951,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-META,Communication Services,0.82,0.8199944269179861,0.0,✅,
-MGM,Consumer Cyclical,,0.4441938538859438,,❌,pipeline N/A: N/A
-MHK,Consumer Cyclical,0.23870000000000002,0.23872086338939677,-0.0,✅,
-MKC,Consumer Defensive,0.379,0.3789599871350672,0.0,✅,
-MKTX,Financial Services,,0.5942018367703849,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MLM,Basic Materials,0.3072,0.3071544715447154,0.0,✅,
-MMC,,,,,❌,pipeline N/A: N/A (not reported separately)
-MMM,Industrials,0.39909999999999995,0.39911014911014914,-0.0,✅,
-MNST,Consumer Defensive,0.5585,0.5584764218214752,0.0,✅,
-MO,Consumer Defensive,0.7595999999999999,0.7220815333432643,3.75,✅,
-MOH,Healthcare,0.1307,0.08970633557874345,4.1,⚠️,
-MOS,Basic Materials,0.1578,0.15780259533370947,-0.0,✅,
-MPC,Energy,0.9001,0.07537358985372912,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-MPWR,Technology,0.5518,0.551787716644466,0.0,✅,
-MRK,Healthcare,0.748,0.7480118749134762,-0.0,✅,
-MRNA,Healthcare,0.5535,0.5483870967741935,0.51,✅,
-MRO,,,,,❌,pipeline N/A: N/A (not reported separately)
-MRVL,Technology,0.5102,0.5101774339198984,0.0,✅,
-MS,Financial Services,,0.87641,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MSCI,Financial Services,,0.8244143566720764,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MSFT,Technology,0.6794,0.6794409337058032,-0.0,✅,
-MSI,Technology,0.5166,0.5166067454203047,-0.0,✅,
-MTB,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-MTCH,Communication Services,0.728,0.7280411746167481,-0.0,✅,
-MTD,Healthcare,0.5937,0.5937429449987446,-0.0,✅,
-MU,Technology,0.3979,0.39790786023864305,-0.0,✅,
-NCLH,Consumer Cyclical,,0.4261907698243883,,❌,pipeline N/A: N/A
-NDAQ,Financial Services,,0.4222948438634713,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-NDSN,Industrials,0.5516,0.5515604005749928,0.0,✅,
-NEE,Utilities,,0.6226834962790019,,➖,DEFINITION_MISMATCH — excluded from KPI
-NFLX,Communication Services,0.4849,0.48486575802475956,0.0,✅,
-NI,Utilities,,0.503989641986089,,➖,DEFINITION_MISMATCH — excluded from KPI
-NKE,Consumer Cyclical,0.4291,0.42913487650329757,-0.0,✅,
-NOC,Industrials,,0.19814558802497975,,❌,pipeline N/A: N/A (not reported separately)
-NOW,Technology,,0.7753426720891701,,❌,pipeline N/A: N/A
-NRG,Utilities,,0.19379415882525314,,➖,DEFINITION_MISMATCH — excluded from KPI
-NSC,Industrials,,0.3634646962233169,,❌,pipeline N/A: N/A (not reported separately)
-NTAP,Technology,0.7073999999999999,0.7074368231046931,-0.0,✅,
-NTRS,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-NUE,Basic Materials,0.1193,0.11934510986643689,-0.0,✅,
-NVDA,Technology,0.7106999999999999,0.7106808435754708,0.0,✅,
-NVR,Consumer Cyclical,,0.23094950659190888,,❌,pipeline N/A: N/A (not reported separately)
-NWS,Communication Services,,0.57167,,❌,pipeline N/A: N/A (not reported separately)
-NWSA,Communication Services,,0.57167,,❌,pipeline N/A: N/A (not reported separately)
-NXPI,Technology,0.5474,0.5473958757844976,0.0,✅,
-O,Real Estate,,0.9254180061596239,,➖,DEFINITION_MISMATCH — excluded from KPI
-ODFL,Industrials,,0.3302830276386915,,❌,pipeline N/A: N/A (not reported separately)
-OKE,Energy,0.695,0.25995420619108506,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-OMC,Communication Services,0.0849,0.08494143666880888,-0.0,✅,
-ON,Technology,0.3309,0.33090369283117055,-0.0,✅,
-ORCL,Technology,,0.658224089552682,,❌,pipeline N/A: N/A (not reported separately)
-ORLY,Consumer Cyclical,0.5159,0.5159231316716373,-0.0,✅,
-OTIS,Industrials,,0.30282031737232346,,❌,pipeline N/A: N/A (not reported separately)
-OXY,Energy,,0.3493261705182235,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-PANW,Technology,0.7341,0.734143035297945,-0.0,✅,
-PARA,Technology,0.82,0.820038845795873,-0.0,✅,
-PAYC,Technology,0.8317,0.8316518009455574,0.0,✅,
-PAYX,Technology,0.7105,0.7428593366093366,-3.24,✅,
-PCAR,Industrials,0.2007,0.16655065249184386,3.41,✅,
-PCG,Utilities,,0.39582915580509326,,➖,DEFINITION_MISMATCH — excluded from KPI
-PDD,Consumer Cyclical,0.5628,0.5628027619206677,-0.0,✅,
-PEG,Utilities,,0.3482084155161078,,➖,DEFINITION_MISMATCH — excluded from KPI
-PEP,Consumer Defensive,0.5415,0.541485227575193,0.0,✅,
-PFE,Healthcare,0.7433,0.7432525288035923,0.0,✅,
-PFG,Financial Services,,0.47345,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-PG,Consumer Defensive,0.5018,0.5017694641051568,0.0,✅,
-PGR,Financial Services,,0.18521,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-PH,Industrials,0.37689999999999996,0.37685473742964787,0.0,✅,
-PHM,Consumer Cyclical,,0.26412987604575866,,❌,pipeline N/A: N/A (not reported separately)
-PKG,Consumer Cyclical,0.2102,0.21020546649906,-0.0,✅,
-PKI,,,,,❌,pipeline N/A: N/A (not reported separately)
-PLD,Real Estate,,0.7457768243849037,,➖,DEFINITION_MISMATCH — excluded from KPI
-PM,Consumer Defensive,0.6712,0.6711769336744735,0.0,✅,
-PNC,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-PNR,Industrials,0.4048,0.4047653256704981,0.0,✅,
-PNW,Utilities,,0.41600737386700487,,➖,DEFINITION_MISMATCH — excluded from KPI
-PODD,Healthcare,0.7162999999999999,0.7163324840293933,-0.0,✅,
-POOL,Industrials,0.2973,0.2972849830112928,0.0,✅,
-PPG,Basic Materials,0.4132,0.41316535433070867,0.0,✅,
-PPL,Utilities,,0.42733908427339085,,➖,DEFINITION_MISMATCH — excluded from KPI
-PRU,Financial Services,,0.29015,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-PSA,Real Estate,,0.7284526709884284,,➖,DEFINITION_MISMATCH — excluded from KPI
-PSX,Energy,0.877,0.09844684837130598,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-PTC,Technology,0.8376,0.8375515565345831,0.0,✅,
-PTVE,,0.1873,,,❌,yfinance no grossMargins
-PWR,Industrials,0.1501,0.1501097782044521,-0.0,✅,
-PYPL,Financial Services,,0.4662064391655613,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-QCOM,Technology,0.5543,0.5542859723602204,0.0,✅,
-QRVO,Technology,0.45890000000000003,0.4589083046238471,-0.0,✅,
-RCL,Consumer Cyclical,,0.4935318389650942,,❌,pipeline N/A: N/A
-REG,Real Estate,,0.7057277518725169,,➖,DEFINITION_MISMATCH — excluded from KPI
-REGN,Healthcare,,0.8535372902272205,,❌,pipeline N/A: N/A (not reported separately)
-RF,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-RJF,Financial Services,,0.93156,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-RL,Consumer Cyclical,0.6987000000000001,0.6986505638055333,0.0,✅,
-RMD,Healthcare,0.6106,nan,nan,❌,
-ROK,Industrials,0.4814,0.48141932390314074,-0.0,✅,
-ROL,Consumer Cyclical,,0.5275239627231757,,❌,pipeline N/A: N/A (not reported separately)
-ROP,Technology,0.6923999999999999,0.6924391015501423,-0.0,✅,
-ROST,Consumer Cyclical,0.2771,0.2770614559404892,0.0,✅,
-RSG,Industrials,0.36579999999999996,0.4195648243023326,-5.38,⚠️,
-RTX,Industrials,,0.20077198288996986,,❌,pipeline N/A: N/A (not reported separately)
-RVTY,Healthcare,,0.5477370677204294,,❌,pipeline N/A: N/A (not reported separately)
-SBAC,Real Estate,,0.7545513738397998,,➖,DEFINITION_MISMATCH — excluded from KPI
-SBUX,Consumer Cyclical,,0.22771108314239305,,❌,pipeline N/A: N/A (not reported separately)
-SCHW,Financial Services,,0.97495,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-SHW,Basic Materials,0.4885,0.48847685827362847,0.0,✅,
-SJM,Consumer Defensive,0.3353,0.3352705255830912,0.0,✅,
-SLB,Energy,,0.18222807214069675,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-SMCI,Technology,0.1106,0.11059154174200105,0.0,✅,
-SNA,Industrials,,0.517290199957332,,❌,pipeline N/A: N/A (not reported separately)
-SNPS,Technology,,0.7698457566565516,,❌,pipeline N/A: N/A
-SO,Utilities,,0.4846885256995906,,➖,DEFINITION_MISMATCH — excluded from KPI
-SOLV,Healthcare,0.5347,0.5346546546546547,0.0,✅,
-SPG,Real Estate,,0.818993307413538,,➖,DEFINITION_MISMATCH — excluded from KPI
-SPGI,Financial Services,,0.7024647887323944,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-SRE,Utilities,,0.4661363304627062,,➖,DEFINITION_MISMATCH — excluded from KPI
-STE,Healthcare,0.4425,0.4424771306794252,0.0,✅,
-STLD,Basic Materials,0.1316,0.13160797401887628,-0.0,✅,
-STT,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-STX,Technology,0.4558,0.45576055760557604,0.0,✅,
-STZ,Consumer Defensive,0.5155,0.5155378050114893,-0.0,✅,
-SW,Consumer Cyclical,0.1938,0.1938163507489015,-0.0,✅,
-SWK,Industrials,0.30329999999999996,0.30325040977105694,0.0,✅,
-SWKS,Technology,0.41159999999999997,0.41158335168465093,0.0,✅,
-SYF,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-SYK,Healthcare,0.6396000000000001,0.6396321070234113,-0.0,✅,
-SYY,Consumer Defensive,0.185,0.18496091209064136,0.0,✅,
-T,Communication Services,,0.5955367375525277,,❌,pipeline N/A: N/A (not reported separately)
-TAP,Consumer Defensive,0.47350000000000003,0.3836887835703002,8.98,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-TDG,Industrials,0.6014,0.6014041444909977,-0.0,✅,
-TDY,Technology,0.4276,0.4275762828269614,0.0,✅,
-TEAM,Technology,0.8482999999999999,0.8483287758273045,-0.0,✅,
-TECH,Healthcare,0.6577,0.6576504951692909,0.0,✅,
-TEL,Technology,0.3522,0.3521608156644653,0.0,✅,
-TER,Technology,0.5821999999999999,0.582235431457569,-0.0,✅,
-TFC,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-TFX,Healthcare,0.5624,0.562426199859187,-0.0,✅,
-TGT,Consumer Defensive,0.2793,0.2793376598587517,-0.0,✅,
-TJX,Consumer Cyclical,,0.30963029218843174,,❌,pipeline N/A: N/A
-TMO,Healthcare,,0.4093408443117804,,❌,pipeline N/A: N/A (not reported separately)
-TMUS,Communication Services,,0.6288713494660794,,❌,pipeline N/A: N/A (not reported separately)
-TPR,Consumer Cyclical,0.7781999999999999,0.7544039824839175,2.38,✅,
-TRGP,Energy,0.6171,0.2939342153943729,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-TRMB,Technology,0.6907,0.6907423410364341,-0.0,✅,
-TROW,Financial Services,,0.5127002788866408,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-TRV,Financial Services,,0.34730998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-TSCO,Consumer Cyclical,0.3642,0.3642418993089817,-0.0,✅,
-TSLA,Consumer Cyclical,0.18030000000000002,0.18026511436616155,0.0,✅,
-TSN,Consumer Defensive,0.0654,0.06542862915817123,-0.0,✅,
-TT,Industrials,,0.3616094250512384,,❌,pipeline N/A: N/A (not reported separately)
-TTD,Communication Services,0.7863,0.7862547319254604,0.0,✅,
-TTWO,Communication Services,0.5722999999999999,0.5723363980530016,-0.0,✅,
-TXN,Technology,0.5702,0.5702409229725144,-0.0,✅,
-TXT,Industrials,,0.18210689911480504,,❌,pipeline N/A: N/A (not reported separately)
-TYL,Technology,,0.46464066131010057,,❌,pipeline N/A: N/A
-UAL,Industrials,,0.2877941425427459,,❌,pipeline N/A: N/A
-UBER,Technology,0.3975,0.39754311090604993,-0.0,✅,
-UDR,Real Estate,,0.27105203066955474,,➖,DEFINITION_MISMATCH — excluded from KPI
-UHS,Healthcare,,0.9044615411991676,,❌,pipeline N/A: N/A (not reported separately)
-UNH,Healthcare,0.18530000000000002,0.1852616479767275,0.0,✅,
-UNP,Industrials,,0.45777233782129745,,❌,pipeline N/A: N/A (not reported separately)
-UPS,Industrials,,0.18080102863716854,,❌,pipeline N/A: N/A (not reported separately)
-URI,Industrials,0.38159999999999994,0.38163861109385677,-0.0,✅,
-USB,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-V,Financial Services,,0.803625,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-VICI,Real Estate,,0.993327701943728,,➖,DEFINITION_MISMATCH — excluded from KPI
-VLO,Energy,0.9556999999999999,0.04376176775045441,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-VLTO,Industrials,0.5995,0.599491186625477,0.0,✅,
-VMC,Basic Materials,0.2738,0.2738411555074234,-0.0,✅,
-VRSK,Industrials,0.6988,0.6987991017671754,0.0,✅,
-VRSN,Technology,0.8815000000000001,0.881504285886756,-0.0,✅,
-VRTX,Healthcare,0.8623999999999999,0.8624065726212994,-0.0,✅,
-VTR,Real Estate,,0.4137936708730575,,➖,DEFINITION_MISMATCH — excluded from KPI
-VTRS,Healthcare,0.3471,0.3505968573206806,-0.35,✅,
-VZ,Communication Services,,0.5892279526163064,,❌,pipeline N/A: N/A (not reported separately)
-WAB,Industrials,0.3408,0.3408256469956121,-0.0,✅,
-WAT,Healthcare,0.5928,0.5928260511056505,-0.0,✅,
-WBA,,0.1796,,,❌,yfinance no grossMargins
-WBD,Communication Services,,0.44002037752037754,,❌,pipeline N/A: N/A (not reported separately)
-WDAY,Technology,,0.7570142378559463,,❌,pipeline N/A: N/A (not reported separately)
-WDC,Technology,0.4885,0.4885053022679774,-0.0,✅,
-WEC,Utilities,,0.4217814103937715,,➖,DEFINITION_MISMATCH — excluded from KPI
-WELL,Real Estate,,0.3917691684065901,,➖,DEFINITION_MISMATCH — excluded from KPI
-WFC,Financial Services,,0.0,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-WHR,Consumer Cyclical,0.1537,0.15369750064416388,0.0,✅,
-WM,Industrials,0.4044,0.4043802571020473,0.0,✅,
-WMB,Energy,,0.619581589958159,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-WMT,Consumer Defensive,0.2398,0.24926699786724774,-0.95,✅,
-WRB,Financial Services,,0.43785998,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-WRK,,0.1765,,,❌,yfinance no grossMargins
-WST,Healthcare,0.3591,0.35912950131745874,-0.0,✅,
-WTW,Financial Services,,0.42058096415327567,,➖,"DEFINITION_MISMATCH -- Net Interest Margin is not gross margin, excluded from delta KPI"
-WY,Real Estate,,0.14844315713251266,,➖,DEFINITION_MISMATCH — excluded from KPI
-WYNN,Consumer Cyclical,,0.4142669493258824,,❌,pipeline N/A: N/A (not reported separately)
-XEL,Utilities,,0.47201581566568956,,➖,DEFINITION_MISMATCH — excluded from KPI
-XOM,Energy,,0.21994103209274324,,➖,"DEFINITION_MISMATCH -- Operating Cost Ratio is not gross margin, excluded from delta KPI"
-XYL,Industrials,0.3846,0.38461538461538464,-0.0,✅,
-YUM,Consumer Cyclical,0.6977,0.4616508400292184,23.6,❌,investigate: possible segment subtotal or GAAP/adjusted gap
-ZBH,Healthcare,0.6970999999999999,0.6970539998785155,0.0,✅,
-ZBRA,Technology,0.4805,0.48054114158636024,-0.0,✅,
-ZM,Technology,0.7702,0.7701603834562699,0.0,✅,
-ZS,Technology,0.7687,0.7687424596397835,-0.0,✅,
-ZTS,Healthcare,0.7184,0.7183901975282561,0.0,✅,
+ticker,sector,pipeline_gm,consensus_gm,consensus_source,delta_pp,match,notes
+AAPL,Technology,0.46909999999999996,0.4690516410716045,yfinance annual FY 2025-09-30,0.0,✅,
+MSFT,Technology,0.6794,0.6794409337058032,yfinance annual FY 2026-06-30,-0.0,✅,
+A,Healthcare,0.5243,0.5243235463442717,yfinance annual FY 2025-10-31,-0.0,✅,
+AAL,Industrials,0.1917,0.19166071788113412,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (19.17% (yfinance annual)), not an independent check"
+ABBV,Healthcare,0.7023999999999999,0.7023544800523218,yfinance annual FY 2025-12-31,0.0,✅,
+ABNB,Consumer Cyclical,0.8295999999999999,0.8295890858589985,yfinance annual FY 2025-12-31,0.0,✅,
+ABT,Healthcare,0.5642,0.5641806533116765,yfinance annual FY 2025-12-31,0.0,✅,
+ACGL,Financial Services,,0.38758,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+ACN,Technology,0.3191,0.31913952808418106,yfinance annual FY 2025-08-31,-0.0,✅,
+ADBE,Technology,0.8926999999999999,0.8926753334174765,yfinance annual FY 2025-11-30,0.0,✅,
+ADI,Technology,0.6147,0.614669518890112,yfinance annual FY 2025-10-31,0.0,✅,
+ADM,Consumer Defensive,0.06269999999999999,0.06270166564925438,yfinance annual FY 2025-12-31,-0.0,✅,
+ADP,Technology,0.4642,0.46416432014726117,yfinance annual FY 2026-06-30,0.0,✅,
+ADSK,Technology,0.9098,0.9097973910630031,yfinance annual FY 2026-01-31,0.0,✅,
+AEE,Utilities,0.474,0.47403113990226164,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (47.40% (yfinance annual)), not an independent check"
+AEP,Utilities,0.6101,0.6100749680014628,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (61.01% (yfinance annual)), not an independent check"
+AES,Utilities,0.1807,0.1807406196354124,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (18.07% (yfinance annual)), not an independent check"
+AFL,Financial Services,,0.50888,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AIG,Financial Services,,0.35087,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AIZ,Financial Services,,0.13272999,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AJG,Financial Services,,0.4257638789269832,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+GOOGL,Communication Services,0.5965,0.5965231508603998,yfinance annual FY 2025-12-31,-0.0,✅,
+AMZN,Consumer Cyclical,0.5029,0.5028566486824266,yfinance annual FY 2025-12-31,0.0,✅,
+NVDA,Technology,0.7106999999999999,0.7106808435754708,yfinance annual FY 2026-01-31,0.0,✅,
+META,Communication Services,0.82,0.8199944269179861,yfinance annual FY 2025-12-31,0.0,✅,
+TSLA,Consumer Cyclical,0.18030000000000002,0.18026511436616155,yfinance annual FY 2025-12-31,0.0,✅,
+AKAM,Technology,0.5895,0.589486416320614,yfinance annual FY 2025-12-31,0.0,✅,
+ALB,Basic Materials,0.13,0.13003183326841972,yfinance annual FY 2025-12-31,-0.0,✅,
+ALGN,Healthcare,0.6718999999999999,0.6718803439138491,yfinance annual FY 2025-12-31,0.0,✅,
+ALL,Financial Services,,0.36800998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+ALLE,Industrials,0.452,0.4519705947434416,yfinance annual FY 2025-12-31,0.0,✅,
+AMAT,Technology,0.4867,0.4867456288776086,yfinance annual FY 2025-10-31,-0.0,✅,
+AMCR,Consumer Cyclical,0.19949999999999998,0.19952352590827874,yfinance annual FY 2026-06-30,-0.0,✅,
+AMD,Technology,0.49520000000000003,0.4951644100580271,yfinance annual FY 2025-12-31,0.0,✅,
+AME,Industrials,0.3604,0.3604103759487083,yfinance annual FY 2025-12-31,-0.0,✅,
+AMGN,Healthcare,0.6725,0.6724714973742211,yfinance annual FY 2025-12-31,0.0,✅,
+AMP,Financial Services,,0.54932,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AMT,Real Estate,0.7418,0.7418315389962986,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (74.18% (yfinance annual)), not an independent check"
+ANET,Technology,0.6406000000000001,0.6405609780472368,yfinance annual FY 2025-12-31,0.0,✅,
+ANSS,General,0.89,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+AON,Financial Services,,0.47703858913916536,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AOS,Industrials,0.3883,0.38833481280350896,yfinance annual FY 2025-12-31,-0.0,✅,
+APA,Energy,,0.40560538116591927,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+APD,Basic Materials,0.3141,0.3141319066568084,yfinance annual FY 2025-09-30,-0.0,✅,
+APH,Technology,0.3688,0.3688162219037268,yfinance annual FY 2025-12-31,-0.0,✅,
+APO,Financial Services,,0.9549751942338295,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+APTV,Consumer Cyclical,0.1911,0.19109716638886165,yfinance annual FY 2025-12-31,0.0,✅,
+ARE,Real Estate,0.6867,0.686740176729736,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (68.67% (yfinance annual)), not an independent check"
+ARM,Technology,0.9754,0.9754065040650407,yfinance annual FY 2026-03-31,-0.0,✅,
+ASML,Technology,0.5283,0.5282958799778371,yfinance annual FY 2025-12-31,0.0,✅,
+ATO,Utilities,0.5813,0.5813101043962529,yfinance annual FY 2025-09-30,,➖,"SOURCE_FALLBACK — pipeline used yfinance (58.13% (yfinance annual)), not an independent check"
+AVB,Real Estate,0.6314,0.6313662037836372,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (63.14% (yfinance annual)), not an independent check"
+AVGO,Technology,0.6777,0.6776652527118193,yfinance annual FY 2025-10-31,0.0,✅,
+AVY,Consumer Cyclical,0.2875,0.28753881768392525,yfinance annual FY 2025-12-31,-0.0,✅,
+AWK,Utilities,0.6072,0.6071984435797665,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (60.72% (yfinance annual)), not an independent check"
+AXON,Industrials,0.5965,nan,yfinance annual FY 2025-12-31,nan,❌,
+AXP,Financial Services,,0.62338,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+AZN,,,,,,❌,pipeline error: skip: unavailable (BAD_CIK)
+AZO,Consumer Cyclical,0.5262,0.5262486365892685,yfinance annual FY 2025-08-31,-0.0,✅,
+BA,Industrials,0.0479,0.04794160714485318,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (4.79% (yfinance annual)), not an independent check"
+BAC,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BALL,Consumer Cyclical,0.1959,0.19588177190183118,yfinance annual FY 2025-12-31,0.0,✅,
+BAX,Healthcare,0.3005,0.3005158306652437,yfinance annual FY 2025-12-31,-0.0,✅,
+BBWI,Consumer Cyclical,0.4374,0.4373885612398848,yfinance annual FY 2026-01-31,0.0,✅,
+BBY,Consumer Cyclical,0.2248,0.22482070470845025,yfinance annual FY 2026-01-31,-0.0,✅,
+BCR,General,,,yfinance TTM (fallback),,❌,pipeline N/A: N/A
+BDX,Healthcare,0.45439999999999997,0.45444139194139194,yfinance annual FY 2025-09-30,-0.0,✅,
+BEN,Financial Services,,0.8034364417891389,yfinance annual FY 2025-09-30,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BF-B,Consumer Defensive,0.6053999999999999,0.6053971486761711,yfinance annual FY 2026-04-30,0.0,✅,
+BG,Consumer Defensive,0.048499999999999995,0.04847218075047278,yfinance annual FY 2025-12-31,0.0,✅,
+BIIB,Healthcare,0.7569,0.7569207125957981,yfinance annual FY 2025-12-31,-0.0,✅,
+BIO,Healthcare,0.5186999999999999,0.5186977392381542,yfinance annual FY 2025-12-31,0.0,✅,
+BK,Financial Services,,,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BKNG,Consumer Cyclical,0.8723000000000001,0.87227994,yfinance TTM (fallback),,➖,"SOURCE_FALLBACK — pipeline used yfinance (87.23% (yfinance TTM)), not an independent check"
+BKR,Energy,,0.23596437457180977,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+BLDR,Industrials,0.3039,0.30385669120678144,yfinance annual FY 2025-12-31,0.0,✅,
+BLK,Financial Services,,0.4670465807730426,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BMY,Healthcare,0.7108,0.7108413735864716,yfinance annual FY 2025-12-31,-0.0,✅,
+BR,Technology,0.3178,0.31779638347956346,yfinance annual FY 2026-06-30,0.0,✅,
+BRK-B,Financial Services,,0.30332002,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BRO,Financial Services,,0.4907166406385563,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+BSX,Healthcare,0.6901,0.6900966424230348,yfinance annual FY 2025-12-31,0.0,✅,
+BX,Financial Services,,1.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+C,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CAG,Consumer Defensive,0.23920000000000002,0.23918593107360658,yfinance annual FY 2026-05-31,0.0,✅,
+CAH,Healthcare,0.0384,0.03669724770642202,yfinance annual FY 2025-06-30,0.17,✅,
+CARR,Industrials,0.2586,0.25861038304133904,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (25.86% (yfinance annual)), not an independent check"
+CAT,Industrials,0.3178,0.3177736022133779,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (31.78% (yfinance annual)), not an independent check"
+CB,Financial Services,,0.31129998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CBOE,Financial Services,,0.4090407704382504,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CBRE,Real Estate,0.1866,0.18658446362515413,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (18.66% (yfinance annual)), not an independent check"
+CCEP,,,,,,❌,pipeline error: skip: unavailable (BAD_CIK)
+CCI,Real Estate,0.7409,0.7408536585365854,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (74.09% (yfinance annual)), not an independent check"
+CCL,Consumer Cyclical,0.401,0.40096164682017954,yfinance annual FY 2025-11-30,,➖,"SOURCE_FALLBACK — pipeline used yfinance (40.10% (yfinance annual)), not an independent check"
+CDNS,Technology,0.8636,0.8636432203164237,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (86.36% (yfinance annual)), not an independent check"
+CDW,Technology,0.2173,0.21732867762808764,yfinance annual FY 2025-12-31,-0.0,✅,
+CE,Basic Materials,0.2045,0.20452640402347025,yfinance annual FY 2025-12-31,-0.0,✅,
+CEG,Utilities,0.1838,0.18380135510907453,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (18.38% (yfinance annual)), not an independent check"
+CF,Basic Materials,0.3845,0.3845285149632976,yfinance annual FY 2025-12-31,-0.0,✅,
+CFG,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CHD,Consumer Defensive,0.4473,0.447317513541398,yfinance annual FY 2025-12-31,-0.0,✅,
+CHRW,Industrials,0.049,0.08373509796206598,yfinance annual FY 2025-12-31,-3.47,✅,
+CHTR,Communication Services,0.5654,0.5653777339613685,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (56.54% (yfinance annual)), not an independent check"
+CI,Healthcare,0.09300000000000001,0.0895148509789888,yfinance annual FY 2025-12-31,0.35,✅,
+CINF,Financial Services,,0.31066,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CL,Consumer Defensive,0.6011,0.6010695711902659,yfinance annual FY 2025-12-31,0.0,✅,
+CLX,Consumer Defensive,0.4523,0.4232142857142857,yfinance annual FY 2026-06-30,2.91,✅,
+CMCSA,Communication Services,0.7175,0.7174695045551182,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (71.75% (yfinance annual)), not an independent check"
+CME,Financial Services,,0.8609023709474588,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+CMG,Consumer Cyclical,0.7043,0.253757190098847,yfinance annual FY 2025-12-31,45.05,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+CMI,Industrials,0.2529,0.25292545292545293,yfinance annual FY 2025-12-31,-0.0,✅,
+CMS,Utilities,0.4153,0.4152711090291603,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (41.53% (yfinance annual)), not an independent check"
+CNC,Healthcare,0.1766,0.07119423751264266,yfinance annual FY 2025-12-31,10.54,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+CNP,Utilities,0.4506,0.45057176445441915,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (45.06% (yfinance annual)), not an independent check"
+COF,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+COO,Healthcare,0.6554000000000001,0.6553855928061773,yfinance annual FY 2025-10-31,0.0,✅,
+COP,Energy,0.3787,0.2508821932681867,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+COR,Healthcare,0.035699999999999996,0.03572165157521616,yfinance annual FY 2025-09-30,-0.0,✅,
+COST,Consumer Defensive,0.1284,0.12843206714262356,yfinance annual FY 2025-08-31,-0.0,✅,
+CPAY,Technology,0.7859999999999999,0.7859781914286339,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (78.60% (yfinance annual)), not an independent check"
+CPB,Consumer Defensive,0.3042,0.3042036477128645,yfinance annual FY 2025-07-31,-0.0,✅,
+CPRT,Industrials,0.5816,0.4518317144247914,yfinance annual FY 2025-07-31,12.98,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+CPT,Real Estate,0.6141,0.6140965870671554,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (61.41% (yfinance annual)), not an independent check"
+CRL,Healthcare,0.3296,0.3295514598611041,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (32.96% (yfinance annual)), not an independent check"
+CRM,Technology,0.7768,0.7767609873570138,yfinance annual FY 2026-01-31,0.0,✅,
+CRWD,Technology,0.7467,0.7466899972049074,yfinance annual FY 2026-01-31,0.0,✅,
+CSCO,Technology,0.6494,0.6493804497475907,yfinance annual FY 2025-07-31,0.0,✅,
+CSGP,Real Estate,0.7887000000000001,0.7887280566676933,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (78.87% (yfinance annual)), not an independent check"
+CSX,Industrials,0.3325,0.3324581322736304,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (33.25% (yfinance annual)), not an independent check"
+CTAS,Industrials,0.5067,0.5066945494893322,yfinance annual FY 2026-05-31,0.0,✅,
+CTLT,General,0.2175,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+CTRA,General,0.8203,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+CTSH,Technology,0.3372,0.33717074095129806,yfinance annual FY 2025-12-31,0.0,✅,
+CTVA,Basic Materials,0.4729,0.4729038561002241,yfinance annual FY 2025-12-31,-0.0,✅,
+CVS,Healthcare,0.1377,0.13769346899894794,yfinance annual FY 2025-12-31,0.0,✅,
+CVX,Energy,0.5725,0.30410124056562854,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+CZR,Consumer Cyclical,0.5,0.5,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (50.00% (yfinance annual)), not an independent check"
+D,Utilities,0.4902,0.49018538713195203,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (49.02% (yfinance annual)), not an independent check"
+DAL,Industrials,0.24170000000000003,0.24165141089577677,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (24.17% (yfinance annual)), not an independent check"
+DAY,General,0.46140000000000003,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+DD,Basic Materials,0.345,0.34501387063804934,yfinance annual FY 2025-12-31,-0.0,✅,
+DDOG,Technology,0.7996,0.7995549081775629,yfinance annual FY 2025-12-31,0.0,✅,
+DE,Industrials,0.36479999999999996,0.3648270457852905,yfinance annual FY 2025-10-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (36.48% (yfinance annual)), not an independent check"
+DECK,Consumer Cyclical,0.5770000000000001,0.5770385958654284,yfinance annual FY 2026-03-31,-0.0,✅,
+DFS,Financials,,,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+DG,Consumer Defensive,0.3066,0.30660930299520633,yfinance annual FY 2026-01-31,-0.0,✅,
+DGX,Healthcare,0.3321,0.3321250566379701,yfinance annual FY 2025-12-31,-0.0,✅,
+DHI,Consumer Cyclical,0.237,0.23696657557284004,yfinance annual FY 2025-09-30,0.0,✅,
+DHR,Healthcare,0.5911,0.5911348095083034,yfinance annual FY 2025-12-31,-0.0,✅,
+DIS,Communication Services,0.3776,0.3776436325125761,yfinance annual FY 2025-09-30,,➖,"SOURCE_FALLBACK — pipeline used yfinance (37.76% (yfinance annual)), not an independent check"
+DLR,Real Estate,0.5539000000000001,0.5539220690327601,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (55.39% (yfinance annual)), not an independent check"
+DLTR,Consumer Defensive,0.3632,0.364046610824344,yfinance annual FY 2026-01-31,-0.08,✅,
+DOC,Real Estate,0.6,0.5999666254740458,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (60.00% (yfinance annual)), not an independent check"
+DOV,Industrials,0.39770000000000005,0.397669541607976,yfinance annual FY 2025-12-31,0.0,✅,
+DOW,Basic Materials,0.0634,0.06337570056044836,yfinance annual FY 2025-12-31,0.0,✅,
+DPZ,Consumer Cyclical,0.3995,0.3995065581051313,yfinance annual FY 2025-12-31,-0.0,✅,
+DRI,Consumer Cyclical,0.6834,0.21667713781801393,yfinance annual FY 2026-05-31,46.67,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+DTE,Utilities,0.3031,0.3030858732768433,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (30.31% (yfinance annual)), not an independent check"
+DUK,Utilities,0.5118,0.5117721872382666,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (51.18% (yfinance annual)), not an independent check"
+DVA,Healthcare,0.3225,0.32247824884562265,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (32.25% (yfinance annual)), not an independent check"
+DVN,Energy,0.2075,0.2554689318128927,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+DXC,Technology,0.2397,0.23971844353052832,yfinance annual FY 2026-03-31,-0.0,✅,
+DXCM,Healthcare,0.601,0.601008151008151,yfinance annual FY 2025-12-31,-0.0,✅,
+EA,Communication Services,0.7897,0.789669366617979,yfinance annual FY 2026-03-31,0.0,✅,
+EBAY,Consumer Cyclical,0.7145,0.7145045045045045,yfinance annual FY 2025-12-31,-0.0,✅,
+ECL,Basic Materials,0.4446,0.44464343456955946,yfinance annual FY 2025-12-31,-0.0,✅,
+ED,Utilities,0.5325,0.5325097529258778,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (53.25% (yfinance annual)), not an independent check"
+EFX,Industrials,0.5645,0.5644744423409334,yfinance annual FY 2025-12-31,0.0,✅,
+EG,Financial Services,,0.15281,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+EIX,Utilities,0.4807,0.48071646736035617,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (48.07% (yfinance annual)), not an independent check"
+EL,Consumer Defensive,0.755,0.7550003322479899,yfinance annual FY 2026-06-30,-0.0,✅,
+ELV,Healthcare,0.1493,0.2599,yfinance TTM (fallback),-11.06,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+EMN,Basic Materials,0.2107,0.21069469835466179,yfinance annual FY 2025-12-31,0.0,✅,
+EMR,Industrials,0.5284,0.528363676731794,yfinance annual FY 2025-09-30,0.0,✅,
+ENPH,Technology,0.4664,0.4664025770798752,yfinance annual FY 2025-12-31,-0.0,✅,
+EOG,Energy,,0.6337791161101762,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+EPAM,Technology,0.2883,0.28834613388611,yfinance annual FY 2025-12-31,-0.0,✅,
+EQIX,Real Estate,0.5109,0.5109037647824671,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (51.09% (yfinance annual)), not an independent check"
+EQR,Real Estate,0.6288,0.6287840271962234,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (62.88% (yfinance annual)), not an independent check"
+EQT,Energy,0.1772,0.4587503233784062,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+ES,Utilities,0.8469,0.8469225179674922,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (84.69% (yfinance annual)), not an independent check"
+ESS,Real Estate,0.6778,0.6778342062526989,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (67.78% (yfinance annual)), not an independent check"
+ETN,Industrials,0.3759,0.3758743806470417,yfinance annual FY 2025-12-31,0.0,✅,
+ETR,Utilities,0.4772,0.47716913810993794,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (47.72% (yfinance annual)), not an independent check"
+ETSY,Consumer Cyclical,0.7164,0.7163864344073403,yfinance annual FY 2025-12-31,0.0,✅,
+EVRG,Utilities,0.5227,0.522661701556629,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (52.27% (yfinance annual)), not an independent check"
+EW,Healthcare,0.7801,0.7801107521919705,yfinance annual FY 2025-12-31,-0.0,✅,
+EXC,Utilities,0.4293,0.42930167367466404,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (42.93% (yfinance annual)), not an independent check"
+EXPD,Industrials,0.0951,0.1292198786720654,yfinance annual FY 2025-12-31,-3.41,✅,
+EXPE,Consumer Cyclical,0.9012,0.9011742347111925,yfinance annual FY 2025-12-31,0.0,✅,
+EXR,Real Estate,0.7078,0.7077694370639951,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (70.78% (yfinance annual)), not an independent check"
+F,Consumer Cyclical,0.0684,0.008971148146763712,yfinance annual FY 2025-12-31,5.94,⚠️,
+FANG,Energy,0.215,0.3497220175497354,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+FAST,Industrials,0.4501,0.45011889518931775,yfinance annual FY 2025-12-31,-0.0,✅,
+FCX,Basic Materials,0.2534,0.28157437777349026,yfinance annual FY 2025-12-31,-2.82,✅,
+FDS,Financial Services,,0.5271743531167035,yfinance annual FY 2025-08-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+FDX,Industrials,0.2177,0.21771537162162163,yfinance annual FY 2026-05-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (21.77% (yfinance annual)), not an independent check"
+FE,Utilities,0.6531,0.6530815109343936,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (65.31% (yfinance annual)), not an independent check"
+FFIV,Technology,0.8140999999999999,0.8141306290785966,yfinance annual FY 2025-09-30,-0.0,✅,
+FI,General,,,yfinance TTM (fallback),,❌,pipeline N/A: N/A (not reported separately)
+FICO,Technology,0.8223,0.8223278377432166,yfinance annual FY 2025-09-30,-0.0,✅,
+FIS,Technology,0.3686,0.36864287721270017,yfinance annual FY 2025-12-31,-0.0,✅,
+FISV,Technology,0.5936,0.5936394092388997,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (59.36% (yfinance annual)), not an independent check"
+FITB,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+FLT,General,,,yfinance TTM (fallback),,❌,pipeline N/A: N/A (not reported separately)
+FMC,Basic Materials,0.37,0.3700178808329007,yfinance annual FY 2025-12-31,-0.0,✅,
+FOX,Communication Services,0.3663,0.36629,yfinance TTM (fallback),,➖,"SOURCE_FALLBACK — pipeline used yfinance (36.63% (yfinance TTM)), not an independent check"
+FOXA,Communication Services,0.3663,0.36629,yfinance TTM (fallback),,➖,"SOURCE_FALLBACK — pipeline used yfinance (36.63% (yfinance TTM)), not an independent check"
+FRT,Real Estate,0.6725,0.6724853886901621,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (67.25% (yfinance annual)), not an independent check"
+FSLR,Technology,0.40619999999999995,0.4062437732020073,yfinance annual FY 2025-12-31,-0.0,✅,
+FTNT,Technology,0.8046,0.8045620330607682,yfinance annual FY 2025-12-31,0.0,✅,
+FTV,Technology,0.635,0.6350171912192542,yfinance annual FY 2025-12-31,-0.0,✅,
+GD,Industrials,0.15130000000000002,0.1513035204567079,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (15.13% (yfinance annual)), not an independent check"
+GDDY,Technology,0.6361,0.6361414635131587,yfinance annual FY 2025-12-31,-0.0,✅,
+GE,Industrials,0.31489999999999996,0.3148620652055392,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (31.49% (yfinance annual)), not an independent check"
+GEHC,Healthcare,0.39990000000000003,0.39985454545454546,yfinance annual FY 2025-12-31,0.0,✅,
+GEN,Technology,0.7846,0.7846,yfinance annual FY 2026-03-31,0.0,✅,
+GEV,Industrials,0.1979,0.19793527372071032,yfinance annual FY 2025-12-31,-0.0,✅,
+GFS,,,,,,❌,pipeline error: skip: unavailable (BAD_CIK)
+GILD,Healthcare,0.7883,0.7882616670063175,yfinance annual FY 2025-12-31,0.0,✅,
+GIS,Consumer Defensive,0.33630000000000004,0.33627324338113174,yfinance annual FY 2026-05-31,0.0,✅,
+GL,Financial Services,,0.33905998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+GLW,Technology,0.35969999999999996,0.35965192910614885,yfinance annual FY 2025-12-31,0.0,✅,
+GM,Consumer Cyclical,0.06269999999999999,0.06267464422572817,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (6.27% (yfinance annual)), not an independent check"
+GNRC,Industrials,0.3829,0.3829129750041992,yfinance annual FY 2025-12-31,-0.0,✅,
+GOOG,Communication Services,0.5965,0.5965231508603998,yfinance annual FY 2025-12-31,-0.0,✅,
+GPC,Consumer Cyclical,0.3679,0.3679278239578939,yfinance annual FY 2025-12-31,-0.0,✅,
+GPN,Industrials,0.7256999999999999,0.7257442954586096,yfinance annual FY 2025-12-31,-0.0,✅,
+GRMN,Technology,0.5874,0.5874393538958355,yfinance annual FY 2025-12-31,-0.0,✅,
+GS,Financial Services,,0.82075995,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+GWW,Industrials,0.3906,0.3906476424032995,yfinance annual FY 2025-12-31,-0.0,✅,
+HAL,Energy,,0.1570501262170934,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+HAS,Consumer Cyclical,0.6346,0.645821368557633,yfinance annual FY 2025-12-31,-1.12,✅,
+HBAN,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+HCA,Healthcare,0.415,0.415,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (41.50% (yfinance annual)), not an independent check"
+HD,Consumer Cyclical,0.3332,0.33315521334928316,yfinance annual FY 2026-01-31,0.0,✅,
+HES,Energy,,,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+HIG,Financial Services,,0.37868,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+HII,Industrials,0.127,0.1269625120153797,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (12.70% (yfinance annual)), not an independent check"
+HLT,Consumer Cyclical,0.282,0.2820001661267547,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (28.20% (yfinance annual)), not an independent check"
+HOLX,Healthcare,0.61,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+HON,Industrials,0.3693,0.3693445862934672,yfinance annual FY 2025-12-31,-0.0,✅,
+HPE,Technology,0.30260000000000004,0.3025717284814556,yfinance annual FY 2025-10-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (30.26% (yfinance annual)), not an independent check"
+HPQ,Technology,0.20600000000000002,0.20602224432588842,yfinance annual FY 2025-10-31,-0.0,✅,
+HRL,Consumer Defensive,0.1563,0.1562688746885883,yfinance annual FY 2025-10-31,0.0,✅,
+HSIC,Healthcare,0.3114,0.3113622572815534,yfinance annual FY 2025-12-31,0.0,✅,
+HST,Real Estate,0.526,0.5260058881256133,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (52.60% (yfinance annual)), not an independent check"
+HSY,Consumer Defensive,0.33549999999999996,0.33548561069861765,yfinance annual FY 2025-12-31,0.0,✅,
+HUBB,Industrials,0.3532,0.35316360401053964,yfinance annual FY 2025-12-31,0.0,✅,
+HUM,Healthcare,0.1454,0.13653,yfinance TTM (fallback),0.89,✅,
+HWM,Industrials,0.3417,0.34173533688802715,yfinance annual FY 2025-12-31,-0.0,✅,
+IBM,Technology,0.5819,0.5818674484719261,yfinance annual FY 2025-12-31,0.0,✅,
+ICE,Financial Services,,0.5615506329113924,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+IDXX,Healthcare,0.618,0.6179747110743262,yfinance annual FY 2025-12-31,0.0,✅,
+IEX,Industrials,0.4451,0.44506146059291396,yfinance annual FY 2025-12-31,0.0,✅,
+IFF,Basic Materials,0.3616,0.3616161616161616,yfinance annual FY 2025-12-31,-0.0,✅,
+ILMN,Healthcare,0.6607999999999999,0.6608335252129864,yfinance annual FY 2025-12-31,-0.0,✅,
+INCY,Healthcare,0.9276000000000001,0.9276244922919403,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (92.76% (yfinance annual)), not an independent check"
+INTC,Technology,0.3477,0.34766238434904356,yfinance annual FY 2025-12-31,0.0,✅,
+INTU,Technology,0.7957,0.7956560989857151,yfinance annual FY 2025-07-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (79.57% (yfinance annual)), not an independent check"
+INVH,Real Estate,0.5842,0.5842455343795616,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (58.42% (yfinance annual)), not an independent check"
+IP,Consumer Cyclical,0.2961,0.29605652872979604,yfinance annual FY 2025-12-31,0.0,✅,
+IPG,General,0.029500000000000002,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+IQV,Healthcare,0.3329,0.33292458614347026,yfinance annual FY 2025-12-31,-0.0,✅,
+IR,Industrials,0.4361,0.4360663451358664,yfinance annual FY 2025-12-31,0.0,✅,
+IRM,Real Estate,0.5538000000000001,0.5538108739872296,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (55.38% (yfinance annual)), not an independent check"
+ISRG,Healthcare,0.66,0.6599600584220096,yfinance annual FY 2025-12-31,0.0,✅,
+IT,Technology,0.6839,0.6839304958762401,yfinance annual FY 2025-12-31,-0.0,✅,
+ITW,Industrials,0.441,0.44097481924707055,yfinance annual FY 2025-12-31,0.0,✅,
+IVZ,Financial Services,,0.3523858807294852,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+J,Industrials,0.2481,0.24812866533003963,yfinance annual FY 2025-09-30,-0.0,✅,
+JBHT,Industrials,0.1331,0.13306202400580844,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (13.31% (yfinance annual)), not an independent check"
+JBL,Technology,0.0888,0.08878598751761627,yfinance annual FY 2025-08-31,0.0,✅,
+JCI,Industrials,0.3641,0.3641295134768605,yfinance annual FY 2025-09-30,-0.0,✅,
+JKHY,Technology,0.4365,0.4271233635668601,yfinance annual FY 2025-06-30,0.94,✅,
+JNJ,Healthcare,0.6788,0.6787871710212011,yfinance annual FY 2025-12-31,0.0,✅,
+JNPR,Technology,0.5876,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+JPM,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+K,Consumer Staples,0.3565,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+KDP,Consumer Defensive,0.542,0.5420104800337289,yfinance annual FY 2025-12-31,-0.0,✅,
+KEY,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+KEYS,Technology,0.6208,0.6208372093023256,yfinance annual FY 2025-10-31,-0.0,✅,
+KHC,Consumer Defensive,0.3331,0.33313286825435007,yfinance annual FY 2025-12-31,-0.0,✅,
+KIM,Real Estate,0.6905,0.6905149066686105,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (69.05% (yfinance annual)), not an independent check"
+KLAC,Technology,0.613,0.6130145227989652,yfinance annual FY 2026-06-30,-0.0,✅,
+KMB,Consumer Defensive,0.3601,0.36012646683285704,yfinance annual FY 2025-12-31,-0.0,✅,
+KMI,Energy,,0.5287240951762414,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+KMX,Consumer Cyclical,0.1084,0.10844166740626598,yfinance annual FY 2026-02-28,-0.0,✅,
+KO,Consumer Defensive,0.6163000000000001,0.6162574831563797,yfinance annual FY 2025-12-31,0.0,✅,
+KR,Consumer Defensive,0.233,0.23300957722057408,yfinance annual FY 2026-01-31,-0.0,✅,
+KVUE,Consumer Defensive,0.5813,0.581327691087014,yfinance annual FY 2025-12-31,-0.0,✅,
+L,Financial Services,,0.36290002,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+LDOS,Technology,0.1765,0.18044718760917666,yfinance annual FY 2025-12-31,-0.39,✅,
+LEN,Consumer Cyclical,0.09910000000000001,0.09907659458435202,yfinance annual FY 2025-11-30,,➖,"SOURCE_FALLBACK — pipeline used yfinance (9.91% (yfinance annual)), not an independent check"
+LH,Healthcare,0.2876,0.28759936065139013,yfinance annual FY 2025-12-31,0.0,✅,
+LHX,Industrials,0.25730000000000003,0.25726046192545166,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (25.73% (yfinance annual)), not an independent check"
+LIN,Basic Materials,0.48829999999999996,0.4883481433531454,yfinance annual FY 2025-12-31,-0.0,✅,
+LKQ,Consumer Cyclical,0.3857,0.3856860303274485,yfinance annual FY 2025-12-31,0.0,✅,
+LLY,Healthcare,0.8304,0.8304361834333144,yfinance annual FY 2025-12-31,-0.0,✅,
+LMT,Industrials,0.1015,0.10152169278328536,yfinance annual FY 2025-12-31,-0.0,✅,
+LNC,Financial Services,,0.27076998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+LNT,Utilities,0.4567,0.45667125171939477,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (45.67% (yfinance annual)), not an independent check"
+LOW,Consumer Cyclical,0.3348,0.334758825301903,yfinance annual FY 2026-01-31,0.0,✅,
+LRCX,Technology,0.5047,0.5046900724797688,yfinance annual FY 2026-06-30,0.0,✅,
+LULU,Consumer Cyclical,0.5660000000000001,0.566005440167168,yfinance annual FY 2026-01-31,-0.0,✅,
+LUV,Industrials,0.1744,0.1744289634037701,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (17.44% (yfinance annual)), not an independent check"
+LVS,Consumer Cyclical,0.4979,0.49788737804409616,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (49.79% (yfinance annual)), not an independent check"
+LW,Consumer Defensive,0.20559999999999998,0.20563192837590552,yfinance annual FY 2026-05-31,-0.0,✅,
+LYB,Basic Materials,0.0855,0.0854641329220973,yfinance annual FY 2025-12-31,0.0,✅,
+LYV,Communication Services,0.2555,0.25546392133835705,yfinance annual FY 2025-12-31,0.0,✅,
+MA,Financial Services,,0.7788722515324327,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MAA,Real Estate,0.30519999999999997,0.3052089378333332,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (30.52% (yfinance annual)), not an independent check"
+MAR,Consumer Cyclical,0.19940000000000002,0.1994195371572596,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (19.94% (yfinance annual)), not an independent check"
+MAS,Industrials,0.3543,0.3542713567839196,yfinance annual FY 2025-12-31,0.0,✅,
+MCD,Consumer Cyclical,0.5740999999999999,0.5740747628789288,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (57.41% (yfinance annual)), not an independent check"
+MCHP,Technology,0.5772999999999999,0.5773482421336276,yfinance annual FY 2026-03-31,-0.0,✅,
+MCK,Healthcare,0.0361,0.036065736311132045,yfinance annual FY 2026-03-31,0.0,✅,
+MCO,Financial Services,,0.7443638248250842,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MDB,Technology,0.7175,0.7174856532417241,yfinance annual FY 2026-01-31,0.0,✅,
+MDLZ,Consumer Defensive,0.2838,0.2837532760723461,yfinance annual FY 2025-12-31,0.0,✅,
+MDT,Healthcare,0.6502,0.6501759982400176,yfinance annual FY 2026-04-30,0.0,✅,
+MELI,Consumer Cyclical,0.14880000000000002,0.44502128543245767,yfinance annual FY 2025-12-31,-29.62,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+MET,Financial Services,,0.23951,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MGM,Consumer Cyclical,0.44420000000000004,0.4441938538859438,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (44.42% (yfinance annual)), not an independent check"
+MHK,Consumer Cyclical,0.23870000000000002,0.23872086338939677,yfinance annual FY 2025-12-31,-0.0,✅,
+MKC,Consumer Defensive,0.379,0.3789599871350672,yfinance annual FY 2025-11-30,0.0,✅,
+MKTX,Financial Services,,0.5942018367703849,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MLM,Basic Materials,0.3072,0.3071544715447154,yfinance annual FY 2025-12-31,0.0,✅,
+MMC,General,,,yfinance TTM (fallback),,❌,pipeline N/A: N/A (not reported separately)
+MMM,Industrials,0.39909999999999995,0.39911014911014914,yfinance annual FY 2025-12-31,-0.0,✅,
+MNST,Consumer Defensive,0.5585,0.5584764218214752,yfinance annual FY 2025-12-31,0.0,✅,
+MO,Consumer Defensive,0.7595999999999999,0.7220815333432643,yfinance annual FY 2025-12-31,3.75,✅,
+MOH,Healthcare,0.1307,0.08970633557874345,yfinance annual FY 2025-12-31,4.1,⚠️,
+MOS,Basic Materials,0.1578,0.15780259533370947,yfinance annual FY 2025-12-31,-0.0,✅,
+MPC,Energy,0.9001,0.07537358985372912,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+MPWR,Technology,0.5518,0.551787716644466,yfinance annual FY 2025-12-31,0.0,✅,
+MRK,Healthcare,0.748,0.7480118749134762,yfinance annual FY 2025-12-31,-0.0,✅,
+MRNA,Healthcare,0.5535,0.5483870967741935,yfinance annual FY 2025-12-31,0.51,✅,
+MRO,General,0.8538,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+MRVL,Technology,0.5102,0.5101774339198984,yfinance annual FY 2026-01-31,0.0,✅,
+MS,Financial Services,,0.87641,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MSCI,Financial Services,,0.8244143566720764,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MSI,Technology,0.5166,0.5166067454203047,yfinance annual FY 2025-12-31,-0.0,✅,
+MTB,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+MTCH,Communication Services,0.728,0.7280411746167481,yfinance annual FY 2025-12-31,-0.0,✅,
+MTD,Healthcare,0.5937,0.5937429449987446,yfinance annual FY 2025-12-31,-0.0,✅,
+MU,Technology,0.3979,0.39790786023864305,yfinance annual FY 2025-08-31,-0.0,✅,
+NCLH,Consumer Cyclical,0.42619999999999997,0.4261907698243883,yfinance annual FY 2025-12-31,0.0,✅,
+NDAQ,Financial Services,,0.4222948438634713,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+NDSN,Industrials,0.5516,0.5515604005749928,yfinance annual FY 2025-10-31,0.0,✅,
+NEE,Utilities,0.6227,0.6226834962790019,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (62.27% (yfinance annual)), not an independent check"
+NFLX,Communication Services,0.4849,0.48486575802475956,yfinance annual FY 2025-12-31,0.0,✅,
+NI,Utilities,0.504,0.503989641986089,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (50.40% (yfinance annual)), not an independent check"
+NKE,Consumer Cyclical,0.4291,0.42913487650329757,yfinance annual FY 2026-05-31,-0.0,✅,
+NOC,Industrials,0.1981,0.19814558802497975,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (19.81% (yfinance annual)), not an independent check"
+NOW,Technology,0.7753,0.7753426720891701,yfinance annual FY 2025-12-31,-0.0,✅,
+NRG,Utilities,0.1938,0.19379415882525314,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (19.38% (yfinance annual)), not an independent check"
+NSC,Industrials,0.3635,0.3634646962233169,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (36.35% (yfinance annual)), not an independent check"
+NTAP,Technology,0.7073999999999999,0.7074368231046931,yfinance annual FY 2026-04-30,-0.0,✅,
+NTRS,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+NUE,Basic Materials,0.1193,0.11934510986643689,yfinance annual FY 2025-12-31,-0.0,✅,
+NVR,Consumer Cyclical,0.2309,0.23094950659190888,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (23.09% (yfinance annual)), not an independent check"
+NWS,Communication Services,0.5717,0.57167,yfinance TTM (fallback),,➖,"SOURCE_FALLBACK — pipeline used yfinance (57.17% (yfinance TTM)), not an independent check"
+NWSA,Communication Services,0.5717,0.57167,yfinance TTM (fallback),,➖,"SOURCE_FALLBACK — pipeline used yfinance (57.17% (yfinance TTM)), not an independent check"
+NXPI,Technology,0.5474,0.5473958757844976,yfinance annual FY 2025-12-31,0.0,✅,
+O,Real Estate,0.9254000000000001,0.9254180061596239,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (92.54% (yfinance annual)), not an independent check"
+ODFL,Industrials,0.33030000000000004,0.3302830276386915,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (33.03% (yfinance annual)), not an independent check"
+OKE,Energy,0.695,0.25995420619108506,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+OMC,Communication Services,0.0849,0.08494143666880888,yfinance annual FY 2025-12-31,-0.0,✅,
+ON,Technology,0.3309,0.33090369283117055,yfinance annual FY 2025-12-31,-0.0,✅,
+ORCL,Technology,0.6581999999999999,0.658224089552682,yfinance annual FY 2026-05-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (65.82% (yfinance annual)), not an independent check"
+ORLY,Consumer Cyclical,0.5159,0.5159231316716373,yfinance annual FY 2025-12-31,-0.0,✅,
+OTIS,Industrials,0.3028,0.30282031737232346,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (30.28% (yfinance annual)), not an independent check"
+OXY,Energy,,0.3493261705182235,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+PANW,Technology,0.7341,0.734143035297945,yfinance annual FY 2025-07-31,-0.0,✅,
+PARA,Technology,0.82,0.820038845795873,yfinance annual FY 2025-12-31,-0.0,✅,
+PAYC,Technology,0.8317,0.8316518009455574,yfinance annual FY 2025-12-31,0.0,✅,
+PAYX,Technology,0.7105,0.7428593366093366,yfinance annual FY 2026-05-31,-3.24,✅,
+PCAR,Industrials,0.2007,0.16655065249184386,yfinance annual FY 2025-12-31,3.41,✅,
+PCG,Utilities,0.3958,0.39582915580509326,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (39.58% (yfinance annual)), not an independent check"
+PDD,Consumer Cyclical,0.5628,0.5628027619206677,yfinance annual FY 2025-12-31,-0.0,✅,
+PEG,Utilities,0.3482,0.3482084155161078,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (34.82% (yfinance annual)), not an independent check"
+PEP,Consumer Defensive,0.5415,0.541485227575193,yfinance annual FY 2025-12-31,0.0,✅,
+PFE,Healthcare,0.7433,0.7432525288035923,yfinance annual FY 2025-12-31,0.0,✅,
+PFG,Financial Services,,0.47345,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+PG,Consumer Defensive,0.5018,0.5017694641051568,yfinance annual FY 2026-06-30,0.0,✅,
+PGR,Financial Services,,0.18521,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+PH,Industrials,0.37689999999999996,0.37685473742964787,yfinance annual FY 2026-06-30,0.0,✅,
+PHM,Consumer Cyclical,0.2641,0.26412987604575866,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (26.41% (yfinance annual)), not an independent check"
+PKG,Consumer Cyclical,0.2102,0.21020546649906,yfinance annual FY 2025-12-31,-0.0,✅,
+PKI,General,,,yfinance TTM (fallback),,❌,pipeline N/A: N/A (not reported separately)
+PLD,Real Estate,0.7458,0.7457768243849037,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (74.58% (yfinance annual)), not an independent check"
+PM,Consumer Defensive,0.6712,0.6711769336744735,yfinance annual FY 2025-12-31,0.0,✅,
+PNC,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+PNR,Industrials,0.4048,0.4047653256704981,yfinance annual FY 2025-12-31,0.0,✅,
+PNW,Utilities,0.41600000000000004,0.41600737386700487,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (41.60% (yfinance annual)), not an independent check"
+PODD,Healthcare,0.7162999999999999,0.7163324840293933,yfinance annual FY 2025-12-31,-0.0,✅,
+POOL,Industrials,0.2973,0.2972849830112928,yfinance annual FY 2025-12-31,0.0,✅,
+PPG,Basic Materials,0.4132,0.41316535433070867,yfinance annual FY 2025-12-31,0.0,✅,
+PPL,Utilities,0.42729999999999996,0.42733908427339085,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (42.73% (yfinance annual)), not an independent check"
+PRU,Financial Services,,0.29015,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+PSA,Real Estate,0.7284999999999999,0.7284526709884284,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (72.85% (yfinance annual)), not an independent check"
+PSX,Energy,0.877,0.09844684837130598,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+PTC,Technology,0.8376,0.8375515565345831,yfinance annual FY 2025-09-30,0.0,✅,
+PTVE,General,0.1873,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+PWR,Industrials,0.1501,0.1501097782044521,yfinance annual FY 2025-12-31,-0.0,✅,
+PYPL,Financial Services,,0.4662064391655613,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+QCOM,Technology,0.5543,0.5542859723602204,yfinance annual FY 2025-09-30,0.0,✅,
+QRVO,Technology,0.45890000000000003,0.4589083046238471,yfinance annual FY 2026-03-31,-0.0,✅,
+RCL,Consumer Cyclical,0.4936,0.4935318389650942,yfinance annual FY 2025-12-31,0.01,✅,
+REG,Real Estate,0.7056999999999999,0.7057277518725169,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (70.57% (yfinance annual)), not an independent check"
+REGN,Healthcare,0.8534999999999999,0.8535372902272205,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (85.35% (yfinance annual)), not an independent check"
+RF,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+RJF,Financial Services,,0.93156,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+RL,Consumer Cyclical,0.6987000000000001,0.6986505638055333,yfinance annual FY 2026-03-31,0.0,✅,
+RMD,Healthcare,0.6106,nan,yfinance annual FY 2026-06-30,nan,❌,
+ROK,Industrials,0.4814,0.48141932390314074,yfinance annual FY 2025-09-30,-0.0,✅,
+ROL,Consumer Cyclical,0.5275,0.5275239627231757,yfinance annual FY 2025-12-31,-0.0,✅,
+ROP,Technology,0.6923999999999999,0.6924391015501423,yfinance annual FY 2025-12-31,-0.0,✅,
+ROST,Consumer Cyclical,0.2771,0.2770614559404892,yfinance annual FY 2026-01-31,0.0,✅,
+RSG,Industrials,0.36579999999999996,0.4195648243023326,yfinance annual FY 2025-12-31,-5.38,⚠️,
+RTX,Industrials,0.20079999999999998,0.20077198288996986,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (20.08% (yfinance annual)), not an independent check"
+RVTY,Healthcare,0.5477000000000001,0.5477370677204294,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (54.77% (yfinance annual)), not an independent check"
+SBAC,Real Estate,0.7545999999999999,0.7545513738397998,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (75.46% (yfinance annual)), not an independent check"
+SBUX,Consumer Cyclical,0.22769999999999999,0.22771108314239305,yfinance annual FY 2025-09-30,,➖,"SOURCE_FALLBACK — pipeline used yfinance (22.77% (yfinance annual)), not an independent check"
+SCHW,Financial Services,,0.97495,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+SHW,Basic Materials,0.4885,0.48847685827362847,yfinance annual FY 2025-12-31,0.0,✅,
+SJM,Consumer Defensive,0.3353,0.3352705255830912,yfinance annual FY 2026-04-30,0.0,✅,
+SLB,Energy,,0.18222807214069675,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+SMCI,Technology,0.1106,0.11059154174200105,yfinance annual FY 2025-06-30,0.0,✅,
+SNA,Industrials,0.5173,0.517290199957332,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (51.73% (yfinance annual)), not an independent check"
+SNPS,Technology,0.7698,0.7698457566565516,yfinance annual FY 2025-10-31,-0.0,✅,
+SO,Utilities,0.48469999999999996,0.4846885256995906,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (48.47% (yfinance annual)), not an independent check"
+SOLV,Healthcare,0.5347,0.5346546546546547,yfinance annual FY 2025-12-31,0.0,✅,
+SPG,Real Estate,0.8190000000000001,0.818993307413538,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (81.90% (yfinance annual)), not an independent check"
+SPGI,Financial Services,,0.7024647887323944,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+SRE,Utilities,0.4661,0.4661363304627062,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (46.61% (yfinance annual)), not an independent check"
+STE,Healthcare,0.4425,0.4424771306794252,yfinance annual FY 2026-03-31,0.0,✅,
+STLD,Basic Materials,0.1316,0.13160797401887628,yfinance annual FY 2025-12-31,-0.0,✅,
+STT,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+STX,Technology,0.4558,0.45576055760557604,yfinance annual FY 2026-06-30,0.0,✅,
+STZ,Consumer Defensive,0.5155,0.5155378050114893,yfinance annual FY 2026-02-28,-0.0,✅,
+SW,Consumer Cyclical,0.1938,0.1938163507489015,yfinance annual FY 2025-12-31,-0.0,✅,
+SWK,Industrials,0.30329999999999996,0.30325040977105694,yfinance annual FY 2025-12-31,0.0,✅,
+SWKS,Technology,0.41159999999999997,0.41158335168465093,yfinance annual FY 2025-09-30,0.0,✅,
+SYF,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+SYK,Healthcare,0.6396000000000001,0.6396321070234113,yfinance annual FY 2025-12-31,-0.0,✅,
+SYY,Consumer Defensive,0.185,0.18496091209064136,yfinance annual FY 2026-06-30,0.0,✅,
+T,Communication Services,0.7977,0.5955367375525277,yfinance annual FY 2025-12-31,20.22,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+TAP,Consumer Defensive,0.47350000000000003,0.3836887835703002,yfinance annual FY 2025-12-31,8.98,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+TDG,Industrials,0.6014,0.6014041444909977,yfinance annual FY 2025-09-30,-0.0,✅,
+TDY,Technology,0.4276,0.4275762828269614,yfinance annual FY 2025-12-31,0.0,✅,
+TEAM,Technology,0.8482999999999999,0.8483287758273045,yfinance annual FY 2026-06-30,-0.0,✅,
+TECH,Healthcare,0.6577,0.6576504951692909,yfinance annual FY 2026-06-30,0.0,✅,
+TEL,Technology,0.3522,0.3521608156644653,yfinance annual FY 2025-09-30,0.0,✅,
+TER,Technology,0.5821999999999999,0.582235431457569,yfinance annual FY 2025-12-31,-0.0,✅,
+TFC,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+TFX,Healthcare,0.5624,0.562426199859187,yfinance annual FY 2025-12-31,-0.0,✅,
+TGT,Consumer Defensive,0.2793,0.2793376598587517,yfinance annual FY 2026-01-31,-0.0,✅,
+TJX,Consumer Cyclical,0.3096,0.30963029218843174,yfinance annual FY 2026-01-31,-0.0,✅,
+TMO,Healthcare,0.4093,0.4093408443117804,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (40.93% (yfinance annual)), not an independent check"
+TMUS,Communication Services,0.6289,0.6288713494660794,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (62.89% (yfinance annual)), not an independent check"
+TPR,Consumer Cyclical,0.7781999999999999,0.7544039824839175,yfinance annual FY 2025-06-30,2.38,✅,
+TRGP,Energy,0.6171,0.2939342153943729,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+TRMB,Technology,0.6907,0.6907423410364341,yfinance annual FY 2025-12-31,-0.0,✅,
+TROW,Financial Services,,0.5127002788866408,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+TRV,Financial Services,,0.34730998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+TSCO,Consumer Cyclical,0.3642,0.3642418993089817,yfinance annual FY 2025-12-31,-0.0,✅,
+TSN,Consumer Defensive,0.0654,0.06542862915817123,yfinance annual FY 2025-09-30,-0.0,✅,
+TT,Industrials,0.3616,0.3616094250512384,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (36.16% (yfinance annual)), not an independent check"
+TTD,Communication Services,0.7863,0.7862547319254604,yfinance annual FY 2025-12-31,0.0,✅,
+TTWO,Communication Services,0.5722999999999999,0.5723363980530016,yfinance annual FY 2026-03-31,-0.0,✅,
+TXN,Technology,0.5702,0.5702409229725144,yfinance annual FY 2025-12-31,-0.0,✅,
+TXT,Industrials,0.1821,0.18210689911480504,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (18.21% (yfinance annual)), not an independent check"
+TYL,Technology,0.4646,0.46464066131010057,yfinance annual FY 2025-12-31,-0.0,✅,
+UAL,Industrials,0.2878,0.2877941425427459,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (28.78% (yfinance annual)), not an independent check"
+UBER,Technology,0.3975,0.39754311090604993,yfinance annual FY 2025-12-31,-0.0,✅,
+UDR,Real Estate,0.2711,0.27105203066955474,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (27.11% (yfinance annual)), not an independent check"
+UHS,Healthcare,0.9045000000000001,0.9044615411991676,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (90.45% (yfinance annual)), not an independent check"
+UNH,Healthcare,0.18530000000000002,0.1852616479767275,yfinance annual FY 2025-12-31,0.0,✅,
+UNP,Industrials,0.4578,0.45777233782129745,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (45.78% (yfinance annual)), not an independent check"
+UPS,Industrials,0.1808,0.18080102863716854,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (18.08% (yfinance annual)), not an independent check"
+URI,Industrials,0.38159999999999994,0.38163861109385677,yfinance annual FY 2025-12-31,-0.0,✅,
+USB,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+V,Financial Services,,0.803625,yfinance annual FY 2025-09-30,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+VICI,Real Estate,0.9933,0.993327701943728,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (99.33% (yfinance annual)), not an independent check"
+VLO,Energy,0.9556999999999999,0.04376176775045441,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+VLTO,Industrials,0.5995,0.599491186625477,yfinance annual FY 2025-12-31,0.0,✅,
+VMC,Basic Materials,0.2738,0.2738411555074234,yfinance annual FY 2025-12-31,-0.0,✅,
+VRSK,Industrials,0.6988,0.6987991017671754,yfinance annual FY 2025-12-31,0.0,✅,
+VRSN,Technology,0.8815000000000001,0.881504285886756,yfinance annual FY 2025-12-31,-0.0,✅,
+VRTX,Healthcare,0.8623999999999999,0.8624065726212994,yfinance annual FY 2025-12-31,-0.0,✅,
+VTR,Real Estate,0.4138,0.4137936708730575,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (41.38% (yfinance annual)), not an independent check"
+VTRS,Healthcare,0.3471,0.3505968573206806,yfinance annual FY 2025-12-31,-0.35,✅,
+VZ,Communication Services,0.5892000000000001,0.5892279526163064,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (58.92% (yfinance annual)), not an independent check"
+WAB,Industrials,0.3408,0.3408256469956121,yfinance annual FY 2025-12-31,-0.0,✅,
+WAT,Healthcare,0.5928,0.5928260511056505,yfinance annual FY 2025-12-31,-0.0,✅,
+WBA,General,0.1796,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+WBD,Communication Services,0.44,0.44002037752037754,yfinance annual FY 2025-12-31,-0.0,✅,
+WDAY,Technology,0.757,0.7570142378559463,yfinance annual FY 2026-01-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (75.70% (yfinance annual)), not an independent check"
+WDC,Technology,0.4885,0.4885053022679774,yfinance annual FY 2026-06-30,-0.0,✅,
+WEC,Utilities,0.4218,0.4217814103937715,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (42.18% (yfinance annual)), not an independent check"
+WELL,Real Estate,0.3918,0.3917691684065901,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (39.18% (yfinance annual)), not an independent check"
+WFC,Financial Services,,0.0,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+WHR,Consumer Cyclical,0.1537,0.15369750064416388,yfinance annual FY 2025-12-31,0.0,✅,
+WM,Industrials,0.4044,0.4043802571020473,yfinance annual FY 2025-12-31,0.0,✅,
+WMB,Energy,,0.619581589958159,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+WMT,Consumer Defensive,0.2398,0.24926699786724774,yfinance annual FY 2026-01-31,-0.95,✅,
+WRB,Financial Services,,0.43785998,yfinance TTM (fallback),,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+WRK,Materials,0.1765,,yfinance TTM (fallback),,❌,yfinance no grossMargins
+WST,Healthcare,0.3591,0.35912950131745874,yfinance annual FY 2025-12-31,-0.0,✅,
+WTW,Financial Services,,0.42058096415327567,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Net Interest Margin is not gross margin, excluded from delta KPI"
+WY,Real Estate,0.1484,0.14844315713251266,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (14.84% (yfinance annual)), not an independent check"
+WYNN,Consumer Cyclical,0.4143,0.4142669493258824,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (41.43% (yfinance annual)), not an independent check"
+XEL,Utilities,0.47200000000000003,0.47201581566568956,yfinance annual FY 2025-12-31,,➖,"SOURCE_FALLBACK — pipeline used yfinance (47.20% (yfinance annual)), not an independent check"
+XOM,Energy,,0.21994103209274324,yfinance annual FY 2025-12-31,,➖,"DEFINITION_MISMATCH — Operating Cost Ratio is not gross margin, excluded from delta KPI"
+XYL,Industrials,0.3846,0.38461538461538464,yfinance annual FY 2025-12-31,-0.0,✅,
+YUM,Consumer Cyclical,0.6977,0.4616508400292184,yfinance annual FY 2025-12-31,23.6,❌,investigate: possible segment subtotal or GAAP/adjusted gap
+ZBH,Healthcare,0.6970999999999999,0.6970539998785155,yfinance annual FY 2025-12-31,0.0,✅,
+ZBRA,Technology,0.4805,0.48054114158636024,yfinance annual FY 2025-12-31,-0.0,✅,
+ZM,Technology,0.7702,0.7701603834562699,yfinance annual FY 2026-01-31,0.0,✅,
+ZS,Technology,0.7687,0.7687424596397835,yfinance annual FY 2025-07-31,-0.0,✅,
+ZTS,Healthcare,0.7184,0.7183901975282561,yfinance annual FY 2025-12-31,0.0,✅,
