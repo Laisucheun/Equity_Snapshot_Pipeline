@@ -1036,6 +1036,28 @@ class BalanceSheetProfile(StatementProfile):
         return self._get_vector(['OperatingLeaseNonCurrentDebtEquivalent'])
 
     @property
+    def operating_lease_liabilities(self) -> np.ndarray:
+        """
+        Total ASC 842 operating lease liability (ROU liability), for EV.
+        Prefers the consolidated total; sums Current + Noncurrent when the
+        filer never tags the total directly (the common case -- see the
+        _BS_WATERFALL comment for OperatingLeaseLiabilities). Distinct from
+        operating_lease_liability (singular) above, an unrelated existing
+        concept used for adjusted net debt.
+        """
+        total = self._get_vector(['OperatingLeaseLiabilities'])
+        if any(v is not None and v == v and v != 0 for v in total):
+            return total
+        current    = self._get_vector(['OperatingLeaseLiabilitiesCurrent'])
+        noncurrent = self._get_vector(['OperatingLeaseLiabilitiesNoncurrent'])
+        return current + noncurrent
+
+    @property
+    def finance_lease_liabilities(self) -> np.ndarray:
+        # FinanceLeaseLiability / CapitalLeaseObligations (pre-ASC 842), for EV
+        return self._get_preferred_vector(['FinanceLeaseLiabilities'])
+
+    @property
     def total_liabilities(self) -> np.ndarray:
         # Liabilities (364) — direct tag; fallback: total_assets - equity
         direct = self._get_vector(['Liabilities'])

@@ -1900,8 +1900,18 @@ _BS_WATERFALL = [
         "AllowanceForLoanAndLeaseLosses",
     ], "USD"),
     ("LongTermDebt", [
+        # FinanceLeaseLiabilityNoncurrent moved to the end (was 2nd) -- it's a
+        # real but narrow component (finance-lease obligations only), not a
+        # substitute for the company's actual bond/notes debt. It used to win
+        # outright for filers like T (finance leases $1.2B vs real LongTermDebt
+        # $134.7B, both present for the same period) purely by candidate
+        # order. Now only wins as a last resort when no real debt tag has any
+        # data at all -- legitimate for a filer whose only debt IS finance
+        # leases. See LongTermDebt in _GAP_FILL_LABELS for the companion fix
+        # (legacy LongTermDebtNoncurrent retirement leaving recent years
+        # blank, e.g. UPS switched to LongTermDebt/LongTermDebtAndCapital-
+        # LeaseObligations around 2023).
         "LongTermDebtNoncurrent",
-        "FinanceLeaseLiabilityNoncurrent",
         "LongTermNotesPayable",
         "LongTermDebt",
         "LongTermDebtAndCapitalLeaseObligations",
@@ -1920,6 +1930,7 @@ _BS_WATERFALL = [
         "SeniorNotes",
         "DebtInstrumentUnamortizedDiscount",
         "OtherLongTermDebt",
+        "FinanceLeaseLiabilityNoncurrent",
     ], "USD"),
     ("LongtermInvestments", [
         "LongTermInvestments",
@@ -2299,9 +2310,14 @@ _BS_WATERFALL = [
         "SelfInsuranceReserve",
     ], "USD"),
     ("ShortTermDebt", [
+        # FinanceLeaseLiabilityCurrent moved to the end (was 3rd) -- same
+        # rationale as FinanceLeaseLiabilityNoncurrent in LongTermDebt above:
+        # a real but narrow component that used to shadow DebtCurrent outright
+        # for filers like T/UPS/HCA (finance-lease current portion in the
+        # low hundreds of millions vs. real current debt in the billions,
+        # both present for the same period).
         "NotesPayableCurrent",
         "ShortTermBorrowings",
-        "FinanceLeaseLiabilityCurrent",
         "NotesPayableRelatedPartiesClassifiedCurrent",
         "ConvertibleNotesPayableCurrent",
         "LoansPayableCurrent",
@@ -2319,6 +2335,39 @@ _BS_WATERFALL = [
         "SecuredDebtCurrent",
         "OtherLongTermDebtCurrent",
         "BankOverdrafts",
+        "FinanceLeaseLiabilityCurrent",
+    ], "USD"),
+    # Operating lease liabilities: three separate labels (not one combined
+    # list) so BalanceSheetProfile.operating_lease_liabilities can genuinely
+    # prefer the consolidated total and fall back to summing Current +
+    # Noncurrent -- a single label with all three concepts as candidates
+    # would repeat the exact "first-candidate-wins picks a component instead
+    # of the total" bug already fixed for CFO and debt above: most ASC 842
+    # filers tag Current/Noncurrent as the actual balance-sheet line items
+    # and never tag the consolidated OperatingLeaseLiability total directly,
+    # so a single blended list would frequently resolve to just the
+    # Noncurrent portion and silently drop Current.
+    ("OperatingLeaseLiabilities", [
+        "OperatingLeaseLiability",
+    ], "USD"),
+    ("OperatingLeaseLiabilitiesCurrent", [
+        "OperatingLeaseLiabilityCurrent",
+    ], "USD"),
+    ("OperatingLeaseLiabilitiesNoncurrent", [
+        "OperatingLeaseLiabilityNoncurrent",
+    ], "USD"),
+    # Finance leases: unlike operating leases above, one blended list is
+    # acceptable here -- FinanceLeaseLiability (the consolidated total) is
+    # tagged directly far more often in practice, and CapitalLeaseObligations
+    # (pre-ASC 842) is a distinct, mutually-exclusive legacy regime a filer
+    # would use instead of, not alongside, the ASC 842 tags.
+    ("FinanceLeaseLiabilities", [
+        "FinanceLeaseLiability",
+        "FinanceLeaseLiabilityNoncurrent",
+        "FinanceLeaseLiabilityCurrent",
+        "CapitalLeaseObligations",         # pre-ASC 842
+        "CapitalLeaseObligationsNoncurrent",
+        "CapitalLeaseObligationsCurrent",
     ], "USD"),
     ("ShortTermInvestments", [
         "ShortTermInvestments",
@@ -2967,7 +3016,18 @@ def _has_valid_values(vals: dict, periods: list) -> bool:
 # interchangeable (segment subtotals, gross vs. net variants), and splicing
 # them would corrupt the series. See the gap-fill block in
 # _resolve_waterfall for the full rationale.
-_GAP_FILL_LABELS = {"InterestExpense"}
+_GAP_FILL_LABELS = {
+    "InterestExpense",
+    # LongTermDebtNoncurrent was retired by some filers mid-window in favor of
+    # LongTermDebt/LongTermDebtAndCapitalLeaseObligations (e.g. UPS: covers
+    # 2008-2022, then the filer switches, leaving 2023-2025 blank on the
+    # legacy tag even though it still wins the initial pass via
+    # _has_valid_values -- confirmed both tags represent the same
+    # consolidated long-term debt total for the overlapping years, not a
+    # sub-component split).
+    "LongTermDebt",
+    "ShortTermDebt",
+}
 
 
 def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,

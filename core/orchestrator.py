@@ -1033,11 +1033,14 @@ class EquityAnalystOrchestrator:
         capex  = float(cf.capital_expenditures[0]) if cf.capital_expenditures[0] else None
         fcf    = float(cf.free_cash_flow[0]) if cf.free_cash_flow[0] else None
         shares = float(inc.diluted_shares[0]) if inc.diluted_shares[0] else None
-        debt   = float(bal.total_debt[0]) if bal.total_debt[0] else None
+        debt      = float(bal.total_debt[0]) if bal.total_debt[0] else None
+        op_lease  = float(bal.operating_lease_liabilities[0]) if bal.operating_lease_liabilities[0] else None
+        fin_lease = float(bal.finance_lease_liabilities[0]) if bal.finance_lease_liabilities[0] else None
         cash   = float(bal.cash[0]) if bal.cash[0] else None
         rev    = float(inc.revenue[0]) if inc.revenue[0] else None
         gp     = float(inc.gross_profit[0]) if inc.gross_profit[0] else None
-        ev     = ((market_cap or 0) + (debt or 0) - (cash or 0)) if market_cap else None
+        ev     = ((market_cap or 0) + (debt or 0) + (op_lease or 0)
+                  + (fin_lease or 0) - (cash or 0)) if market_cap else None
 
         cash_metrics = {
             "net_income": ni, "cfo": cfo, "capex": capex, "fcf": fcf,
@@ -1077,7 +1080,8 @@ class EquityAnalystOrchestrator:
             data_sources["diluted_shares"] = "yfinance"
         else:
             data_sources["diluted_shares"] = "none"
-        # ev: derived from market_cap (live market data) + XBRL debt - XBRL cash.
+        # ev: derived from market_cap (live market data) + XBRL debt + XBRL
+        # operating/finance lease liabilities - XBRL cash.
         data_sources["ev"] = "derived" if ev is not None else "none"
 
         return cash_metrics, data_sources

@@ -2873,7 +2873,8 @@ def _compute_credit_quality(ticker: str,
     profile     : CompanyFinancialProfile — used to derive IS-based cost of debt
     market_cap  : current market cap — used only for the largest-maturity-as-
                   %-of-EV metric below (current-price EV, same formula as
-                  ValuationAgent's curr_ev: market_cap + debt - cash).
+                  ValuationAgent's curr_ev: market_cap + debt + operating
+                  lease liabilities + finance lease liabilities - cash).
 
     Returns dict with all credit quality fields. All values default to "N/A".
     """
@@ -3058,9 +3059,12 @@ def _compute_credit_quality(ticker: str,
 
             if profile is not None:
                 try:
-                    debt0 = _safe_val(profile.balance_sheet.total_debt, 0)
-                    cash0 = _safe_val(profile.balance_sheet.cash, 0)
-                    ev_current = (market_cap or 0) + (debt0 or 0) - (cash0 or 0)
+                    debt0      = _safe_val(profile.balance_sheet.total_debt, 0)
+                    op_lease0  = _safe_val(profile.balance_sheet.operating_lease_liabilities, 0)
+                    fin_lease0 = _safe_val(profile.balance_sheet.finance_lease_liabilities, 0)
+                    cash0      = _safe_val(profile.balance_sheet.cash, 0)
+                    ev_current = ((market_cap or 0) + (debt0 or 0)
+                                  + (op_lease0 or 0) + (fin_lease0 or 0) - (cash0 or 0))
                     if ev_current and ev_current > 0:
                         result["largest_maturity_pct_ev"] = (largest_m * 1e6) / ev_current * 100
                 except Exception:
@@ -3105,6 +3109,9 @@ class ValuationAgent:
         fy_ev    = {}   # FY-end Enterprise Value per period, hoisted and
                         # shared by EV/Sales, EV/EBITDA, EV/FCF, EV/CFO,
                         # FCF/EV, CFO/EV below (was computed inline twice)
+        op_lease_rows  = {}   # operating lease liabilities per period, for
+                              # the output dict (transparency on EV components)
+        fin_lease_rows = {}   # finance lease liabilities per period, ditto
         fcf_ev_rows    = {}
         cfo_ev_rows    = {}
         cfo_share_rows = {}
@@ -3157,12 +3164,16 @@ class ValuationAgent:
             ni     = inc.net_income[i]
             oi     = inc.operating_income[i]
 
-            shares = shares_rows.get(p)
-            eq     = bal.equity[i]
-            pref   = bal.preferred_stock[i]
-            debt   = bal.total_debt[i]
-            ta     = bal.total_assets[i]
-            gi     = bal.goodwill_and_intangibles[i]
+            shares    = shares_rows.get(p)
+            eq        = bal.equity[i]
+            pref      = bal.preferred_stock[i]
+            debt      = bal.total_debt[i]
+            op_lease  = bal.operating_lease_liabilities[i]
+            fin_lease = bal.finance_lease_liabilities[i]
+            op_lease_rows[p]  = op_lease  or None
+            fin_lease_rows[p] = fin_lease or None
+            ta        = bal.total_assets[i]
+            gi        = bal.goodwill_and_intangibles[i]
 
             eps       = _safe_div(ni, shares) if shares else "N/A"
             common_eq = (eq - pref) if (eq and pref) else eq
@@ -3237,7 +3248,8 @@ class ValuationAgent:
             if hist_p and shares and shares > 0:
                 fy_market_cap = hist_p * shares
                 fy_mcap_rows[p] = fy_market_cap
-                fy_ev[p] = fy_market_cap + (debt or 0) - (cash_i or 0)
+                fy_ev[p] = (fy_market_cap + (debt or 0)
+                            + (op_lease or 0) + (fin_lease or 0) - (cash_i or 0))
             else:
                 fy_mcap_rows[p] = None
                 fy_ev[p] = None
@@ -3248,16 +3260,18 @@ class ValuationAgent:
             # economically meaningless and not comparable to non-bank peers.
             #
             # Two bases are computed: "current" (today's market cap -- the
-            # original approximation, market cap + debt, no cash netting,
-            # unchanged) and a per-FY historical figure using fy_ev above
-            # (FY-end price x shares for market cap, netting FY-end cash).
+            # original approximation, market cap + debt + lease liabilities,
+            # no cash netting -- the no-cash-netting asymmetry vs. fy_ev/
+            # curr_ev below is pre-existing and out of scope here) and a
+            # per-FY historical figure using fy_ev above (FY-end price x
+            # shares for market cap, netting FY-end cash).
             if sg == "financials":
                 ev_sales[p]         = "N/A (financials)"
                 ev_sales_current[p] = "N/A (financials)" if i == 0 else "—"
             else:
                 if i == 0:
                     if market_cap and rev:
-                        ev_approx = market_cap + debt if debt else market_cap
+                        ev_approx = market_cap + (debt or 0) + (op_lease or 0) + (fin_lease or 0)
                         ev_sales_current[p] = _fmt_x(_safe_div(ev_approx, rev))
                     else:
                         ev_sales_current[p] = "N/A"
@@ -3276,7 +3290,7 @@ class ValuationAgent:
             else:
                 if i == 0:
                     if market_cap and ebitda and ebitda > 0:
-                        ev_approx = market_cap + debt if debt else market_cap
+                        ev_approx = market_cap + (debt or 0) + (op_lease or 0) + (fin_lease or 0)
                         ev_ebitda_current[p] = _fmt_x(_safe_div(ev_approx, ebitda))
                     else:
                         ev_ebitda_current[p] = "N/A"
@@ -3433,9 +3447,12 @@ class ValuationAgent:
         # whether cash is netted; this is a pre-existing asymmetry between
         # the historical (nets cash) and original current-basis (doesn't)
         # formulas, not something introduced here.
-        curr_debt  = _safe_val(bal.total_debt, 0)
-        curr_cash  = _safe_val(bal.cash, 0)
-        curr_ev    = (market_cap or 0) + (curr_debt or 0) - (curr_cash or 0)
+        curr_debt      = _safe_val(bal.total_debt, 0)
+        curr_op_lease  = _safe_val(bal.operating_lease_liabilities, 0)
+        curr_fin_lease = _safe_val(bal.finance_lease_liabilities, 0)
+        curr_cash      = _safe_val(bal.cash, 0)
+        curr_ev        = ((market_cap or 0) + (curr_debt or 0)
+                           + (curr_op_lease or 0) + (curr_fin_lease or 0) - (curr_cash or 0))
         curr_fcf   = _safe_val(fcf_arr, 0)
         curr_cfo   = _safe_val(cfo_arr, 0)
         if _yf_shares_outstanding:
@@ -3607,6 +3624,10 @@ class ValuationAgent:
             "ptbv":           ptbv,
             "ev_sales":         ev_sales,
             "ev_ebitda":        ev_ebitda,
+            "operating_lease_liabilities": {"current": op_lease_rows.get(periods[0]) if periods else None,
+                                             "by_period": op_lease_rows},
+            "finance_lease_liabilities":   {"current": fin_lease_rows.get(periods[0]) if periods else None,
+                                             "by_period": fin_lease_rows},
             "ev_sales_current":  ev_sales_current,
             "ev_ebitda_current": ev_ebitda_current,
             "fcf_ev":         {"current": curr_fcf_ev, "by_period": fcf_ev_rows},

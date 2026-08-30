@@ -702,7 +702,10 @@ _g("Valuation", {
     "YoY Δ":             "Year-over-year change in the row above. Suppressed where the "
                          "prior value is zero or of the opposite sign, which would make "
                          "the percentage meaningless.",
-    "EV":                "Enterprise Value — market capitalisation plus debt less cash. "
+    "EV":                "EV = Market Cap + Total Debt + Operating Lease Liabilities + "
+                         "Finance Lease Liabilities − Cash (IFRS 16 / ASC 842 standard "
+                         "analyst treatment). Third-party EV figures may differ if they "
+                         "exclude lease liabilities or use different debt definitions. "
                          "Computed at fiscal-year-end price × diluted shares.",
 })
 
