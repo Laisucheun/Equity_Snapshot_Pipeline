@@ -3574,17 +3574,19 @@ def _compute_ttm_bundle(us_gaap: dict, ticker: str = "", sector: str = "",
     if len(quarterly_periods) < 2:
         return None
 
+    def _resolve_ttm_by_label(label: str, waterfall: list) -> tuple[float | None, int, str | None]:
+        concepts = next((c for l, c, u in waterfall if l == label), None)
+        if concepts is None:
+            return None, 0, None
+        val, n, _partial, concept = _resolve_ttm_value(
+            us_gaap, label, concepts, quarterly_periods,
+            ticker=ticker, sector=sector, fine_industry=fine_industry)
+        return val, n, concept
+
     resolved: dict[str, float | None] = {}
     coverage: dict[str, int] = {}
     for out_label, (wf_label, waterfall) in _TTM_LABEL_SOURCES.items():
-        concepts = next((c for l, c, u in waterfall if l == wf_label), None)
-        if concepts is None:
-            resolved[out_label] = None
-            coverage[out_label] = 0
-            continue
-        val, n, _partial, _concept = _resolve_ttm_value(
-            us_gaap, wf_label, concepts, quarterly_periods,
-            ticker=ticker, sector=sector, fine_industry=fine_industry)
+        val, n, _concept = _resolve_ttm_by_label(wf_label, waterfall)
         resolved[out_label] = val
         coverage[out_label] = n
 
@@ -3595,6 +3597,59 @@ def _compute_ttm_bundle(us_gaap: dict, ticker: str = "", sector: str = "",
     da               = resolved["DepreciationAndAmortization"]
     cfo              = resolved["CFO"]
     capex            = resolved["CapEx"]
+
+    # -- GrossProfit fallback: Revenue - COGS -----------------------------
+    # Mirrors _reconcile()'s annual-pipeline logic (see the "GrossProfit
+    # override" log line): prefer Revenue - COGS over the raw GrossProfit
+    # tag whenever both resolve, since GrossProfit alone is frequently
+    # absent from XBRL (analysts derive it, filers don't always tag it) or
+    # can land on a segment subtotal. Confirmed live: TTM GrossProfit
+    # resolved to None for AMZN, WMT, XOM, UNH, DUK -- every ticker checked
+    # -- because the base "GrossProfit" waterfall entry has exactly one
+    # candidate (the raw tag) and no derivation fallback of its own.
+    #
+    # Same plausibility guard as the annual pipeline's COGS check: some
+    # filers tag CostOfGoodsAndServicesSold to a minor segment subtotal, or
+    # (multi-line-expense filers -- airlines, railroads, freight, and
+    # confirmed here for XOM's integrated-energy cost structure) the
+    # waterfall falls back to LaborAndRelatedExpense, one payroll line out
+    # of many. Either pattern inflates gross margin toward ~100% if trusted
+    # -- treat COGS as unresolved (fall back to None, matching XOM's actual
+    # annual "N/A (costs missing)" state) rather than derive a confident,
+    # wrong number. Managed-care insurers are exempt: their COGS tag
+    # legitimately sits alongside (not instead of) medical claims costs.
+    _managed_care_exempt = {"CNC", "UNH", "ELV", "CI", "CVS", "MOH", "HUM"}
+    cogs, _cogs_n, cogs_concept = _resolve_ttm_by_label("CostOfGoodsAndServicesSold", _IS_WATERFALL)
+    if cogs is not None and ticker.upper() not in _managed_care_exempt:
+        costs_subtot, _cs_n, _cs_concept = _resolve_ttm_by_label("CostsSubtotal", _IS_WATERFALL)
+        cogs_bad_concept   = cogs_concept == "LaborAndRelatedExpense"
+        cogs_bad_magnitude = bool(costs_subtot and costs_subtot > 0 and cogs < costs_subtot * 0.15)
+        if cogs_bad_concept or cogs_bad_magnitude:
+            cogs = None
+    if revenue is not None and cogs is not None:
+        gross_profit = revenue - cogs
+
+    # -- OperatingIncome fallback: pretax + |interest| - nonop ------------
+    # Mirrors IncomeStatementProfile.operating_income's back-calc (see
+    # core/data_layer.py): when OperatingIncomeLoss doesn't resolve, EBIT
+    # is recovered from below-the-line items. Confirmed live: TTM
+    # OperatingIncome resolved to None for XOM and BAC via the raw tag
+    # alone. REIT fallback (Revenue - CostsSubtotal) applied last, matching
+    # the annual property's own final fallback tier.
+    if operating_income is None:
+        pretax, _, _pretax_concept = _resolve_ttm_by_label("PretaxIncomeLoss", _IS_WATERFALL)
+        if pretax is not None:
+            interest, _, _ = _resolve_ttm_by_label("InterestExpense", _IS_WATERFALL)
+            nonop, _, _    = _resolve_ttm_by_label("NonoperatingIncomeExpense", _IS_WATERFALL)
+            operating_income = pretax
+            if interest is not None:
+                operating_income += abs(interest)
+            if nonop is not None:
+                operating_income -= nonop
+        elif revenue is not None:
+            total_exp, _, _ = _resolve_ttm_by_label("CostsSubtotal", _IS_WATERFALL)
+            if total_exp is not None:
+                operating_income = revenue - total_exp
 
     # EBITDA / FCF: derived the same way agents.py already computes them for
     # the annual/current basis (operating income + |D&A|; CFO - |CapEx|).
