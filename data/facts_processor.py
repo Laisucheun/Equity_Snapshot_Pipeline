@@ -470,10 +470,26 @@ def _load_company_mappings() -> dict[str, dict]:
     return result
 
 
+# {raw_concept_name: is_total}, populated by _build_sector_overrides() below as
+# a side effect of scanning gaap_mappings.json's industry_overrides -- used by
+# _resolve_waterfall() to try consolidated totals before sub-components for CF
+# labels. The per-industry-override is_total flag (not the concept's top-level
+# one) is the trustworthy signal here: e.g. CashProvidedByUsedInOperatingActiv-
+# itiesDiscontinuedOperations carries is_total=True at the generic top level
+# (a low-confidence 0.34 default) but is_total=False in every industry override
+# that actually references it -- the override-level flag reflects that this
+# raw tag is a discontinued-ops CFO component, not a consolidated total.
+# Concepts absent from this dict (including every hand-curated base waterfall
+# concept) default to True in _resolve_waterfall() so unknown/base concepts
+# are never demoted.
+_CONCEPT_IS_TOTAL: dict[str, bool] = {}
+
+
 def _build_sector_overrides(gaap_mappings: dict) -> dict[str, dict[str, list[str]]]:
     """
     Build {pipeline_sector: {standard_tag: [raw_concepts_priority]}} from
     gaap_mappings industry_overrides, using only high-confidence overrides (>=0.70).
+    Also populates the module-level _CONCEPT_IS_TOTAL dict as a side effect.
     """
     from collections import defaultdict
 
@@ -514,6 +530,13 @@ def _build_sector_overrides(gaap_mappings: dict) -> dict[str, dict[str, list[str
                     existing = [x[0] for x in acc[sector][tag]]
                     if raw_concept not in existing:
                         acc[sector][tag].append((raw_concept, count, ov_conf))
+                # Only ever downgrade True -> False, never upgrade back --
+                # if any qualifying override for this concept marks it a
+                # component, treat it as a component everywhere.
+                if not ov.get("is_total", True):
+                    _CONCEPT_IS_TOTAL[raw_concept] = False
+                else:
+                    _CONCEPT_IS_TOTAL.setdefault(raw_concept, True)
 
     # Sort by (override_conf desc, count desc), return concept names only
     result: dict[str, dict[str, list[str]]] = {}
@@ -2830,6 +2853,56 @@ _CF_LOW_CONF_ADDITIONS = [
 # Financial Services: InterestIncomeExpenseNet must beat ASC 606 sub-components
 _SECTOR_PREPEND_OVERRIDE = {"Real Estate", "Financial Services"}
 
+# gaap_mappings.json's industry_overrides map
+# RightOfUseAssetObtainedInExchangeForOperatingLeaseLiability (an ASC 842
+# non-cash supplemental lease disclosure) to standard_tags=
+# ["NetCashFromOperatingActivities"] at confidence 0.99-1.0 for nearly every
+# industry code, so it enters _SECTOR_OVERRIDES for all 11 sectors here. For
+# Financial Services/Real Estate (_SECTOR_PREPEND_OVERRIDE), it's tried
+# BEFORE the correct base concepts and wins outright even when they resolve
+# fine -- confirmed via ACGL: this tag resolves to $13M while the correct
+# NetCashProvidedByUsedInOperatingActivities tag is present and resolves to
+# $6.17B for the same period. Confirmed this is the only concept of its kind
+# actually reaching a CF label in the built _SECTOR_OVERRIDES (checked
+# sibling lease/finance concepts -- none have a qualifying industry_override
+# for a CF label, so they aren't added here without evidence). Filtered
+# regardless of which tier introduces it, since the injection point is the
+# third-party mapping file, not this project's own waterfall lists.
+_CF_LABELS = {w[0] for w in _CF_WATERFALL}
+# All 24 concepts gaap_mappings.json's industry_overrides inject into
+# _SECTOR_OVERRIDES["Financial Services"]["NetCashFromOperatingActivities"]
+# are reconciling/adjustment or supplemental-disclosure line items from the
+# indirect-method CF statement (IncreaseDecreaseIn..., AdjustmentsFor...,
+# ProvisionFor..., ProceedsFrom..., etc.) -- none is a "Net Cash Provided by
+# Operating Activities" total. Checked empirically against 7 tickers
+# confirmed broken by this bug (ACGL, AFL, AJG, MET, ALL, TRV, CB): each of
+# the 6 concepts below is the one that actually wins the resolution for at
+# least one of them, and each produces a value 6-350x smaller than the real
+# CFO (e.g. ACGL: $13M resolved vs. $6.17B actual). PRU (unaffected control,
+# none of the 24 concepts tagged for it) still resolves correctly and is
+# untouched by this list. The other 18 concepts in that sector-override
+# list were never observed to fire for any of the 7 -- left unblocked since
+# there's no evidence for them yet; if one surfaces later, add it here with
+# the same kind of confirmation.
+_CF_BLOCKLIST = {
+    "RightOfUseAssetObtainedInExchangeForOperatingLeaseLiability",  # ACGL, AJG, MET, ALL, TRV
+    "IncreaseDecreaseInDeferredIncomeTaxes",                        # ACGL (after the above), CB
+    "StockGrantedDuringPeriodValueSharebasedCompensation",          # AJG
+    "OtherOperatingActivitiesCashFlowStatement",                    # MET, TRV
+    "ProceedsFromSaleOfMortgageLoansHeldForSale",                   # ALL
+    "ProvisionForLoanLossesExpensed",                               # AFL
+    "ProvisionForLoanLeaseAndOtherLosses",                          # AFL (2nd-tier winner after the above)
+    "GainLossOnSalesOfLoansNet",                                    # MET (2nd-tier winner after the above)
+    "IncreaseDecreaseInInterestPayableNet",                         # NTRS
+    "FairValueOfAssetsAcquired",                                    # MKTX
+}
+# NOTE: CashProvidedByUsedInOperatingActivitiesDiscontinuedOperations (AIG) is
+# deliberately NOT here -- unlike the concepts above, it is a real cash-flow
+# component (ASC 205-20 discontinued-ops CFO), not a non-cash disclosure.
+# Blocklisting it would return None for a filer in full wind-down that reports
+# only this concept with no consolidated total. Fixed instead via
+# total-before-component ordering -- see _CONCEPT_IS_TOTAL below.
+
 # -----------------------------------------------------------------------------
 # Period discovery
 # -----------------------------------------------------------------------------
@@ -2974,6 +3047,27 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
             append  = [c for c in sector_ov if c not in concepts
                       and c not in company_concepts and c not in industry_concepts]
             augmented = company_concepts + industry_concepts + concepts + append
+
+        # CF-only blocklist: strip concepts confirmed to be misrouted into a
+        # CFO/investing/financing candidate list by gaap_mappings.json's
+        # industry_overrides (see _CF_BLOCKLIST above). Never applies to IS
+        # or BS labels -- those don't share _CF_WATERFALL's label names.
+        if label in _CF_LABELS and _CF_BLOCKLIST:
+            augmented = [c for c in augmented if c not in _CF_BLOCKLIST]
+
+        # CF-only total-before-component ordering: sector overrides can inject
+        # a real cash-flow component (e.g. a discontinued-ops CFO subtotal)
+        # ahead of the consolidated total in the base waterfall. A stable sort
+        # promotes is_total=True concepts first while preserving relative
+        # order within each group -- unlike the blocklist, this never drops a
+        # concept outright, so a filer that reports ONLY the component (e.g.
+        # one in full wind-down, with no consolidated total) still resolves to
+        # it rather than None. Unknown concepts default to True (never
+        # demoted) -- see _CONCEPT_IS_TOTAL. IS/BS labels are untouched: their
+        # candidates aren't drawn from this total/component distinction.
+        if label in _CF_LABELS:
+            augmented = sorted(augmented,
+                                key=lambda c: 0 if _CONCEPT_IS_TOTAL.get(c, True) else 1)
 
         resolved_concept = None
         period_vals = {}

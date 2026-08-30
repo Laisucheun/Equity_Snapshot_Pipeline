@@ -1,0 +1,10 @@
+ticker,sector,metric,pipeline_val,yfinance_val,delta_pct,match,source,notes
+AAPL,Technology,net_income,112010000000.0,112010000000.0,0.0,✅,xbrl,
+AAPL,Technology,cfo,111482000000.0,111482000000.0,0.0,✅,xbrl,
+AAPL,Technology,capex,12715000000.0,12715000000.0,0.0,✅,xbrl,
+AAPL,Technology,fcf,98767000000.0,98767000000.0,0.0,✅,derived,
+AAPL,Technology,ev_fcf,47.67,47.875125277066225,-0.43,✅,derived,
+AAPL,Technology,ev_cfo,42.24,42.41476200857537,-0.41,✅,derived,
+AAPL,Technology,fcf_ev,2.1,2.088767380163981,0.01,✅,derived,
+AAPL,Technology,cfo_ev,2.37,2.3576697183820596,0.01,✅,derived,
+AAPL,Technology,cfo_share,7.6388,7.638798479942004,0.0,✅,xbrl,
