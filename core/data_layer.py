@@ -1455,7 +1455,8 @@ class CompanyFinancialProfile:
     """
 
     def __init__(self, ticker: str, sector: str, market_cap: float,
-                 financials_payload: dict, fine_industry: str | None = None):
+                 financials_payload: dict, fine_industry: str | None = None,
+                 ttm: dict | None = None):
         self.ticker        = ticker.upper()
         self.sector        = sector
         self.market_cap    = market_cap
@@ -1463,6 +1464,10 @@ class CompanyFinancialProfile:
         # set by FactsDataProcessor.load_data(); used by FundamentalAgent for
         # sector-appropriate metric suppression. May be None (SIC unresolved).
         self.fine_industry = fine_industry
+        # Trailing-twelve-months bundle from facts_processor._compute_ttm_bundle()
+        # -- see FactsDataProcessor.ttm. None when TTM couldn't be computed
+        # (e.g. fewer than 2 quarterly periods discoverable).
+        self.ttm            = ttm
 
         is_df = financials_payload.get("income_statement")
         if is_df is not None and not is_df.empty:

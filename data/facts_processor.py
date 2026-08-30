@@ -241,7 +241,8 @@ def _get_facts(cik: str) -> dict | None:
 # Core extraction: company facts blob -> {period_end: value} per concept
 # -----------------------------------------------------------------------------
 
-_ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
+_ANNUAL_FORMS    = {"10-K", "10-K/A", "20-F", "20-F/A"}
+_QUARTERLY_FORMS = {"10-Q", "10-Q/A"}
 
 # Concepts where SEC's XBRL companyfacts API can return a segment/product-line
 # dimensional fact alongside the consolidated total under the same raw concept
@@ -318,6 +319,113 @@ def _is_annual_period(entry: dict) -> bool:
     return False
 
 
+def _is_quarterly_period(entry: dict) -> bool:
+    """
+    True if a raw XBRL fact entry represents a single standalone fiscal
+    quarter (~3-month period) -- NOT a year-to-date cumulative duration
+    (H1, 9-month) that happens to close on the same date.
+
+    Duration is checked FIRST and is authoritative whenever both start/end
+    are present, mirroring _is_annual_period() above for exactly the same
+    reason: `fp` is a per-FACT tag here (unlike the filing-level fp seen in
+    the annual case), but the SEC companyfacts API files TWO durations per
+    quarter under the identical fp value -- e.g. AAPL's Q2 FY2018 10-Q
+    contains both start=2017-10-01/end=2018-03-31 (181 days, H1 cumulative)
+    and start=2017-12-31/end=2018-03-31 (90 days, standalone Q2), both
+    tagged fp='Q2'. Trusting `fp in ("Q1".."Q4")` alone -- as an OR against
+    duration, rather than a fallback -- would accept the cumulative entry
+    too and double/triple-count it into a TTM sum. Confirmed live for both
+    AAPL and MSFT (checked RevenueFromContractWithCustomerExcludingAssessed
+    Tax): every fp='Q2'/'Q3' filing carries exactly this duplicate pair.
+
+    75-105 days covers standard 13-week quarters with margin for 4-4-5/
+    4-5-4 retail calendars and short first/last quarters after an IPO or
+    fiscal-year change.
+
+    fp is used only as a fallback when no start date is present.
+    """
+    start = entry.get("start")
+    end   = entry.get("end")
+    fp    = entry.get("fp", "")
+
+    if start and end:
+        try:
+            days = (datetime.date.fromisoformat(end)
+                    - datetime.date.fromisoformat(start)).days
+            return 75 <= days <= 105
+        except (ValueError, TypeError):
+            pass  # unparseable -- fall through to fp fallback below
+
+    if fp in ("Q1", "Q2", "Q3", "Q4"):
+        return True
+    return False
+
+
+def _extract_periods(us_gaap: dict, concept: str, unit: str,
+                     allowed_forms: set, period_ok_fn,
+                     use_max_magnitude: bool = False) -> dict[str, float]:
+    """
+    Shared extraction body for _extract_annual() and _extract_quarterly():
+    filter raw XBRL fact entries to a set of allowed filing forms and an
+    optional per-fact period-length predicate, then dedup same-period-end
+    entries by most-recently-filed (or largest magnitude, for segment-vs-
+    consolidated duplicates -- see _MAX_MAGNITUDE_CONCEPTS).
+
+    Returns {period_end_date: value} sorted newest-first.
+
+    Parameters
+    ----------
+    allowed_forms : filing forms to accept (_ANNUAL_FORMS or _QUARTERLY_FORMS).
+    period_ok_fn  : callable(entry) -> bool applied to duration/fp -- pass
+                    None to skip (instant/balance-sheet concepts have no
+                    duration to filter).
+    use_max_magnitude : When True, same-period-end duplicate entries are
+                 disambiguated by largest absolute value rather than most
+                 recently filed -- used for revenue/COGS-family concepts
+                 where a segment-level fact can share a concept name with
+                 the consolidated total (companyfacts exposes no dimensional
+                 context, so both look identical apart from value).
+    """
+    data = us_gaap.get(concept)
+    if not data:
+        return {}
+
+    entries = data.get("units", {}).get(unit, [])
+    if not entries:
+        return {}
+
+    # Collect: end_date -> (filed_date, value)
+    # Keep most recently filed for each period end
+    best: dict[str, tuple[str, float]] = {}
+
+    for e in entries:
+        form = e.get("form", "")
+        if form not in allowed_forms:
+            continue
+
+        end   = e.get("end", "")
+        filed = e.get("filed", "")
+        val   = e.get("val")
+        if val is None or not end:
+            continue
+
+        if period_ok_fn is not None and not period_ok_fn(e):
+            continue
+
+        # Dedup: keep most recently filed for same period end, or the
+        # largest absolute value when use_max_magnitude is True (segment
+        # vs. consolidated duplicates under the same concept name).
+        if use_max_magnitude:
+            if end not in best or abs(float(val)) > abs(best[end][1]):
+                best[end] = (filed, float(val))
+        else:
+            if end not in best or filed > best[end][0]:
+                best[end] = (filed, float(val))
+
+    return {end: v for end, (_, v) in
+            sorted(best.items(), key=lambda x: x[0], reverse=True)}
+
+
 def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
                     is_instant: bool = False,
                     use_max_magnitude: bool = False) -> dict[str, float]:
@@ -335,7 +443,7 @@ def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
     ----------
     is_instant : True for balance-sheet (point-in-time) concepts.
                  False for income-statement / cash-flow (duration) concepts --
-                 adds a day-count filter (300-400 days) to exclude quarterly
+                 adds a day-count filter (340-380 days) to exclude quarterly
                  entries that appear under a 10-K form.
     use_max_magnitude : When True, same-period-end duplicate entries are
                  disambiguated by largest absolute value rather than most
@@ -343,48 +451,152 @@ def _extract_annual(us_gaap: dict, concept: str, unit: str = "USD",
                  where a segment-level fact can share a concept name with
                  the consolidated total.
     """
+    period_ok = None if is_instant else _is_annual_period
+    return _extract_periods(us_gaap, concept, unit, _ANNUAL_FORMS, period_ok,
+                            use_max_magnitude)
+
+
+def _extract_quarterly(us_gaap: dict, concept: str, unit: str = "USD",
+                       use_max_magnitude: bool = False) -> dict[str, float]:
+    """
+    Extract all standalone-quarter values for a single raw XBRL concept from
+    10-Q filings. Returns {period_end_date: value} sorted newest-first.
+
+    Excludes year-to-date cumulative durations (H1, 9-month) that share the
+    same fp tag as a standalone quarter -- see _is_quarterly_period().
+    Income-statement / cash-flow (flow) concepts only; balance-sheet
+    (instant) concepts don't need a quarterly path since TTM uses the most
+    recent quarter's existing annual-style instant extraction (MRQ), not a
+    sum -- there's nothing to distinguish "quarterly" from "annual" for a
+    point-in-time value beyond which period-end it's dated.
+    """
+    return _extract_periods(us_gaap, concept, unit, _QUARTERLY_FORMS,
+                            _is_quarterly_period, use_max_magnitude)
+
+
+def _extract_quarterly_raw(us_gaap: dict, concept: str, unit: str = "USD",
+                          use_max_magnitude: bool = False) -> dict[str, tuple[float, str, bool]]:
+    """
+    Like _extract_quarterly(), but keeps BOTH standalone-quarter entries
+    AND fiscal-year-to-date cumulative entries (75-339 days), each tagged
+    with its start date and whether it's standalone -- the raw material
+    _derive_missing_quarters() needs to chain YTD cumulative facts back
+    into discrete quarters. Returns {end: (value, start, is_standalone)}.
+    """
     data = us_gaap.get(concept)
     if not data:
         return {}
-
     entries = data.get("units", {}).get(unit, [])
     if not entries:
         return {}
 
-    # Collect: end_date -> (filed_date, value)
-    # Keep most recently filed for each period end
-    best: dict[str, tuple[str, float]] = {}
-
+    best: dict[str, tuple[str, float, str, bool]] = {}
     for e in entries:
-        form = e.get("form", "")
-        if form not in _ANNUAL_FORMS:
+        if e.get("form") not in _QUARTERLY_FORMS:
             continue
-
-        end   = e.get("end", "")
-        filed = e.get("filed", "")
-        val   = e.get("val")
-        if val is None or not end:
+        start, end, filed, val = e.get("start"), e.get("end"), e.get("filed", ""), e.get("val")
+        if val is None or not start or not end:
             continue
-
-        # Duration filter: IS/CF entries must span ~1 year. See
-        # _is_annual_period() -- duration is authoritative when start/end
-        # are both present; fp is a filing-level tag, not a per-fact one,
-        # and is only trusted as a fallback with no start date.
-        if not is_instant and not _is_annual_period(e):
+        try:
+            days = (datetime.date.fromisoformat(end)
+                   - datetime.date.fromisoformat(start)).days
+        except (ValueError, TypeError):
             continue
+        if not (75 <= days <= 339):
+            continue  # neither a standalone quarter nor a YTD cumulative
+        is_standalone = 75 <= days <= 105
 
-        # Dedup: keep most recently filed for same period end, or the
-        # largest absolute value when use_max_magnitude is True (segment
-        # vs. consolidated duplicates under the same concept name).
         if use_max_magnitude:
-            if end not in best or abs(float(val)) > abs(best[end][1]):
-                best[end] = (filed, float(val))
+            if end not in best or abs(val) > abs(best[end][1]):
+                best[end] = (filed, float(val), start, is_standalone)
         else:
             if end not in best or filed > best[end][0]:
-                best[end] = (filed, float(val))
+                best[end] = (filed, float(val), start, is_standalone)
 
-    return {end: v for end, (_, v) in
-            sorted(best.items(), key=lambda x: x[0], reverse=True)}
+    return {end: (v, s, is_s) for end, (_, v, s, is_s) in best.items()}
+
+
+def _derive_missing_quarters(us_gaap: dict, concept: str, unit: str = "USD",
+                            use_max_magnitude: bool = False) -> dict[str, float]:
+    """
+    Build a complete {period_end: standalone_quarter_value} series for a
+    concept, deriving whichever quarters aren't directly filed as a
+    discrete 3-month fact.
+
+    Two distinct gaps, both filled by the same underlying technique
+    (subtract the preceding cumulative-to-date figure within the same
+    fiscal year):
+
+    1. Fiscal Q4 is NEVER filed as a discrete fact for any concept -- the
+       10-K reports the full year instead, so Q4 = FY_total - YTD(Q3).
+       Confirmed live for AAPL, MSFT, and NVDA revenue and net income.
+
+    2. Many filers report the STATEMENT OF CASH FLOWS specifically (CFO,
+       CapEx, SBC, dividends, buybacks) only as fiscal-year-to-date
+       cumulative durations beyond Q1 in their 10-Qs -- Q1 YTD trivially
+       equals Q1 standalone, so Q1 always looks discrete, but Q2/Q3 have NO
+       standalone fact at all, only H1/9-month cumulative ones. Confirmed
+       live for AAPL, NVDA, and WMT operating cash flow (MSFT is a
+       confirmed exception that files real discrete quarters throughout).
+       Q2 = YTD(Q2) - Q1; Q3 = YTD(Q3) - YTD(Q2).
+
+    Method: group every cumulative-through-this-point fact available for a
+    fiscal year (its Q1 standalone -- trivially its own cumulative -- any
+    YTD entries, and the FY total attached from _extract_annual) by shared
+    period-start date, sort by end date, and derive each gap as the
+    difference from the preceding entry's reported cumulative value. A real
+    filed discrete quarter is always used in preference to a derived one
+    for the same period-end; chaining always uses the raw reported
+    cumulative value at each step (never a derived standalone), so one
+    estimation error can't compound into the next quarter's derivation.
+
+    Returns {period_end: value} -- discrete quarters as filed, plus every
+    quarter derivable this way. Periods that are neither filed nor
+    derivable (e.g. insufficient fiscal-year history) are simply absent.
+    """
+    from collections import defaultdict
+
+    raw = _extract_quarterly_raw(us_gaap, concept, unit, use_max_magnitude)
+    annual = _extract_annual(us_gaap, concept, unit, is_instant=False,
+                             use_max_magnitude=use_max_magnitude)
+
+    result: dict[str, float] = {end: v for end, (v, _s, is_s) in raw.items() if is_s}
+    if not raw:
+        return result
+
+    # Group every cumulative-through-this-point fact by fiscal-year start.
+    by_start: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for end, (val, start, _is_s) in raw.items():
+        by_start[start].append((end, val))
+
+    # Attach each annual (FY) total to whichever fiscal-year group's latest
+    # cumulative end-date it follows within ~200 days (a Q3 YTD -> FY-end
+    # gap is normally ~90 days; 200 gives margin without reaching into an
+    # unrelated, older fiscal year).
+    for fy_end, fy_val in annual.items():
+        candidates = [s for s, items in by_start.items()
+                     if items and max(e for e, _ in items) < fy_end]
+        if not candidates:
+            continue
+        best_start = max(candidates, key=lambda s: max(e for e, _ in by_start[s]))
+        try:
+            span = (datetime.date.fromisoformat(fy_end)
+                   - datetime.date.fromisoformat(max(e for e, _ in by_start[best_start]))).days
+        except (ValueError, TypeError):
+            continue
+        if span > 200:
+            continue
+        by_start[best_start].append((fy_end, fy_val))
+
+    for _start, items in by_start.items():
+        items.sort(key=lambda x: x[0])   # by end date ascending
+        prev_cumulative = 0.0
+        for end, cum_val in items:
+            if end not in result:        # never override a real discrete fact
+                result[end] = cum_val - prev_cumulative
+            prev_cumulative = cum_val    # chain from the reported cumulative
+
+    return result
 
 
 
@@ -2983,6 +3195,37 @@ def _discover_periods(us_gaap: dict, max_years: int) -> list[str]:
     return periods
 
 
+# Flow-only subset of _ANCHOR_CONCEPTS -- quarterly duration extraction
+# doesn't apply to the instant "Assets" anchor (a point-in-time balance
+# sheet concept doesn't distinguish "quarterly" from "annual" beyond its
+# period-end date; TTM uses the most recent quarter's value directly, not
+# a duration-filtered sum -- see _extract_quarterly()'s docstring).
+_QUARTERLY_ANCHOR_CONCEPTS = [
+    (concept, unit) for concept, unit, instant in _ANCHOR_CONCEPTS if not instant
+]
+
+
+def _discover_quarterly_periods(us_gaap: dict, n: int = 4) -> list[str]:
+    """
+    Find the n most recent quarter period-end dates from the same
+    revenue/net-income anchor concepts _discover_periods() uses for annual
+    periods. Returns sorted newest-first, capped at n.
+
+    Includes derived quarter-ends (see _derive_missing_quarters()) --
+    fiscal Q4 (never separately filed) and, for concepts reported only as
+    fiscal-year-to-date cumulative beyond Q1, Q2/Q3 as well -- otherwise
+    the true most recent quarter could be entirely absent from the
+    discovered period list.
+    """
+    all_ends: set[str] = set()
+    for concept, unit in _QUARTERLY_ANCHOR_CONCEPTS:
+        q = _derive_missing_quarters(us_gaap, concept, unit)
+        all_ends.update(q.keys())
+
+    periods = sorted(all_ends, reverse=True)
+    return periods[:n] if n else periods
+
+
 def _has_valid_values(vals: dict, periods: list) -> bool:
     """
     True if `vals` (a {period_end_date: value} dict, e.g. from
@@ -3028,6 +3271,60 @@ _GAP_FILL_LABELS = {
     "LongTermDebt",
     "ShortTermDebt",
 }
+
+
+def _build_candidate_list(label: str, concepts: list[str],
+                          company_patch: dict[str, list[str]],
+                          industry_override: dict[str, list[str]],
+                          sector_override: dict[str, list[str]],
+                          sector: str) -> list[str]:
+    """
+    Shared candidate-list assembly for _resolve_waterfall() (annual) and
+    _resolve_ttm_value() (quarterly/TTM) -- both need the exact same
+    priority ordering and CF-specific corrections so a concept that's been
+    confirmed to misroute a label doesn't reintroduce the same bug on
+    whichever path didn't get the fix applied.
+
+    Priority order:
+      1. Company-specific patch (highest)
+      2. Fine-grained industry override
+      3. Broad sector override (REIT/Insurance/Banks sectors PREPEND theirs
+         before the base list; others append as fallback)
+      4. Base waterfall concepts (universal, sorted by company_count)
+      5. Sector-specific APPEND concepts (fallback additions, non-prepend sectors)
+
+    Then, for CF labels only: strip _CF_BLOCKLIST concepts (confirmed non-
+    cash disclosures misrouted into a CFO/investing/financing candidate
+    list), then stable-sort so _CONCEPT_IS_TOTAL concepts precede components
+    (see _CF_BLOCKLIST / _CONCEPT_IS_TOTAL above for the full rationale).
+    """
+    company_concepts  = company_patch.get(label, [])
+    industry_concepts = [c for c in industry_override.get(label, [])
+                         if c not in company_concepts]
+    sector_ov         = sector_override.get(label, [])
+
+    if sector in _SECTOR_PREPEND_OVERRIDE and sector_ov:
+        # Prepend sector concepts before base (REITs, Insurance, Banks for Revenue)
+        prepend = [c for c in sector_ov
+                  if c not in company_concepts and c not in industry_concepts]
+        base    = [c for c in concepts
+                  if c not in company_concepts and c not in industry_concepts
+                  and c not in prepend]
+        augmented = company_concepts + industry_concepts + prepend + base
+    else:
+        # Default: sector concepts as fallback after base
+        append  = [c for c in sector_ov if c not in concepts
+                  and c not in company_concepts and c not in industry_concepts]
+        augmented = company_concepts + industry_concepts + concepts + append
+
+    if label in _CF_LABELS and _CF_BLOCKLIST:
+        augmented = [c for c in augmented if c not in _CF_BLOCKLIST]
+
+    if label in _CF_LABELS:
+        augmented = sorted(augmented,
+                            key=lambda c: 0 if _CONCEPT_IS_TOTAL.get(c, True) else 1)
+
+    return augmented
 
 
 def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
@@ -3077,57 +3374,8 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
     sector_override: dict[str, list[str]] = _SECTOR_OVERRIDES.get(sector, {})
 
     for label, concepts, unit in waterfall:
-        # Build augmented concept list:
-        #   1. Company-specific concepts (extension tags, highest priority)
-        #   2. Fine-grained industry concepts (NEW -- SIC-derived)
-        #   3. Sector-specific PREPEND concepts (override base for sector)
-        #   4. Base waterfall concepts (universal, sorted by company_count)
-        #   5. Sector-specific APPEND concepts (fallback additions)
-        #
-        # Sectors in _SECTOR_PREPEND_OVERRIDE get their concepts tried BEFORE
-        # the base waterfall -- critical for REITs where the universal concept
-        # (RevenueFromContractWithCustomer) exists but picks a sub-component.
-        # All other sectors get their overrides appended as fallbacks.
-        company_concepts  = company_patch.get(label, [])
-        industry_concepts = [c for c in industry_override.get(label, [])
-                             if c not in company_concepts]
-        sector_ov         = sector_override.get(label, [])
-
-        if sector in _SECTOR_PREPEND_OVERRIDE and sector_ov:
-            # Prepend sector concepts before base (REITs, Insurance, Banks for Revenue)
-            prepend = [c for c in sector_ov
-                      if c not in company_concepts and c not in industry_concepts]
-            append  = []
-            base    = [c for c in concepts
-                      if c not in company_concepts and c not in industry_concepts
-                      and c not in prepend]
-            augmented = company_concepts + industry_concepts + prepend + base + append
-        else:
-            # Default: sector concepts as fallback after base
-            append  = [c for c in sector_ov if c not in concepts
-                      and c not in company_concepts and c not in industry_concepts]
-            augmented = company_concepts + industry_concepts + concepts + append
-
-        # CF-only blocklist: strip concepts confirmed to be misrouted into a
-        # CFO/investing/financing candidate list by gaap_mappings.json's
-        # industry_overrides (see _CF_BLOCKLIST above). Never applies to IS
-        # or BS labels -- those don't share _CF_WATERFALL's label names.
-        if label in _CF_LABELS and _CF_BLOCKLIST:
-            augmented = [c for c in augmented if c not in _CF_BLOCKLIST]
-
-        # CF-only total-before-component ordering: sector overrides can inject
-        # a real cash-flow component (e.g. a discontinued-ops CFO subtotal)
-        # ahead of the consolidated total in the base waterfall. A stable sort
-        # promotes is_total=True concepts first while preserving relative
-        # order within each group -- unlike the blocklist, this never drops a
-        # concept outright, so a filer that reports ONLY the component (e.g.
-        # one in full wind-down, with no consolidated total) still resolves to
-        # it rather than None. Unknown concepts default to True (never
-        # demoted) -- see _CONCEPT_IS_TOTAL. IS/BS labels are untouched: their
-        # candidates aren't drawn from this total/component distinction.
-        if label in _CF_LABELS:
-            augmented = sorted(augmented,
-                                key=lambda c: 0 if _CONCEPT_IS_TOTAL.get(c, True) else 1)
+        augmented = _build_candidate_list(label, concepts, company_patch,
+                                          industry_override, sector_override, sector)
 
         resolved_concept = None
         period_vals = {}
@@ -3226,6 +3474,166 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
 
     df = pd.DataFrame(rows)
     return df, log
+
+
+# -----------------------------------------------------------------------------
+# Trailing twelve months (TTM)
+# -----------------------------------------------------------------------------
+
+def _compute_ttm(quarterly_values: dict, periods: list) -> float | None:
+    """
+    Sum the given periods' quarterly values.
+
+    Guards:
+    - Skips any period whose value is None (partial TTM -- caller tracks
+      how many periods actually contributed via len() of the filtered list).
+    - Returns None if fewer than 2 periods resolve -- not enough to call it
+      a trailing-twelve-months figure at all, just noise.
+    """
+    vals = [quarterly_values[p] for p in periods if quarterly_values.get(p) is not None]
+    if len(vals) < 2:
+        return None
+    return sum(vals)
+
+
+# TTM label -> (waterfall label, source waterfall list). Reuses the exact
+# same candidate lists _resolve_waterfall() uses for annual data -- same
+# tag-mapping knowledge, no ticker-specific handling, no duplicated concept
+# lists to drift out of sync with the annual side.
+_TTM_LABEL_SOURCES = {
+    "Revenue":          ("Revenue",                        _IS_WATERFALL),
+    "GrossProfit":      ("GrossProfit",                     _IS_WATERFALL),
+    "OperatingIncome":  ("OperatingIncomeLoss",              _IS_WATERFALL),
+    "NetIncome":        ("NetIncome",                        _IS_WATERFALL),
+    "InterestExpense":  ("InterestExpense",                  _IS_WATERFALL),
+    "TaxExpense":       ("IncomeTaxes",                      _IS_WATERFALL),
+    "DepreciationAndAmortization": ("DepreciationAmortizationCF", _CF_WATERFALL),
+    "CFO":              ("NetCashFromOperatingActivities",   _CF_WATERFALL),
+    "CapEx":            ("CapitalExpenses",                  _CF_WATERFALL),
+    "SBC":              ("NonCashStockComp",                 _CF_WATERFALL),
+    "DividendsPaid":    ("CommonDividendsPaid",               _CF_WATERFALL),
+    "ShareRepurchases": ("StockRepurchasePayments",           _CF_WATERFALL),
+}
+
+
+def _resolve_ttm_value(us_gaap: dict, label: str, concepts: list[str],
+                       quarterly_periods: list[str],
+                       ticker: str = "", sector: str = "",
+                       fine_industry: str = "") -> tuple[float | None, int, bool, str | None]:
+    """
+    Resolve one TTM figure by summing `quarterly_periods`, trying candidates
+    in the same priority order _resolve_waterfall() uses for annual data
+    (company patch > fine industry > sector override > base, with the CF
+    blocklist / total-before-component ordering applied to CF labels) --
+    see _build_candidate_list(). Fills both the fiscal-Q4 gap and the
+    fiscal-year-to-date-only-beyond-Q1 gap per candidate via
+    _derive_missing_quarters() before checking period coverage.
+
+    Commits to the first candidate (in priority order) that covers at least
+    2 of the requested periods -- same "first candidate that actually has
+    data for the target window" philosophy as _resolve_waterfall(), just
+    summed instead of built into a period-indexed row.
+
+    Returns (ttm_value, quarters_used, is_partial, resolved_concept).
+    (None, 0, True, None) if no candidate covers at least 2 periods.
+    """
+    company_patch = _COMPANY_MAPPINGS.get(ticker.upper(), {})
+    industry_override = (_INDUSTRY_CONCEPT_OVERRIDES.get(fine_industry, {})
+                         if fine_industry else {})
+    sector_override = _SECTOR_OVERRIDES.get(sector, {})
+    augmented = _build_candidate_list(label, concepts, company_patch,
+                                      industry_override, sector_override, sector)
+
+    for concept in augmented:
+        use_max = concept in _MAX_MAGNITUDE_CONCEPTS
+        q = _derive_missing_quarters(us_gaap, concept, "USD", use_max_magnitude=use_max)
+        if not q:
+            continue
+
+        covered = [p for p in quarterly_periods if q.get(p) is not None]
+        if len(covered) < 2:
+            continue  # not enough coverage from this candidate -- try the next
+
+        ttm_value = _compute_ttm(q, quarterly_periods)
+        return ttm_value, len(covered), len(covered) < len(quarterly_periods), concept
+
+    return None, 0, True, None
+
+
+def _compute_ttm_bundle(us_gaap: dict, ticker: str = "", sector: str = "",
+                        fine_industry: str = "") -> dict | None:
+    """
+    Build the full TTM figure set (flow items only -- balance-sheet items
+    use MRQ, computed elsewhere from the existing instant extraction, not
+    summed here) plus TTM margin ratios.
+
+    Returns None if fewer than 2 quarterly periods can be discovered at all
+    (nothing to compute a TTM from).
+    """
+    quarterly_periods = _discover_quarterly_periods(us_gaap, n=4)
+    if len(quarterly_periods) < 2:
+        return None
+
+    resolved: dict[str, float | None] = {}
+    coverage: dict[str, int] = {}
+    for out_label, (wf_label, waterfall) in _TTM_LABEL_SOURCES.items():
+        concepts = next((c for l, c, u in waterfall if l == wf_label), None)
+        if concepts is None:
+            resolved[out_label] = None
+            coverage[out_label] = 0
+            continue
+        val, n, _partial, _concept = _resolve_ttm_value(
+            us_gaap, wf_label, concepts, quarterly_periods,
+            ticker=ticker, sector=sector, fine_industry=fine_industry)
+        resolved[out_label] = val
+        coverage[out_label] = n
+
+    revenue          = resolved["Revenue"]
+    gross_profit     = resolved["GrossProfit"]
+    operating_income = resolved["OperatingIncome"]
+    net_income       = resolved["NetIncome"]
+    da               = resolved["DepreciationAndAmortization"]
+    cfo              = resolved["CFO"]
+    capex            = resolved["CapEx"]
+
+    # EBITDA / FCF: derived the same way agents.py already computes them for
+    # the annual/current basis (operating income + |D&A|; CFO - |CapEx|).
+    ebitda = (operating_income + abs(da)) if (operating_income is not None and da is not None) \
+             else operating_income
+    fcf    = (cfo - abs(capex)) if (cfo is not None and capex is not None) else None
+
+    # Overall completeness: the weakest coverage among the two anchor flow
+    # items (Revenue drives every margin; CFO drives FCF) -- a bundle isn't
+    # meaningfully "full TTM" if either is partial even when other lines
+    # happen to have all 4 quarters.
+    quarters_used = min(coverage.get("Revenue", 0) or 0, coverage.get("CFO", 0) or 0) \
+                    or max(coverage.values(), default=0)
+    is_partial = quarters_used < len(quarterly_periods) or quarters_used < 4
+
+    def margin(numerator):
+        return (numerator / revenue) if (numerator is not None and revenue) else None
+
+    return {
+        "Revenue":           revenue,
+        "GrossProfit":       gross_profit,
+        "OperatingIncome":   operating_income,
+        "NetIncome":         net_income,
+        "EBITDA":            ebitda,
+        "CFO":               cfo,
+        "CapEx":             capex,
+        "FCF":               fcf,
+        "SBC":               resolved["SBC"],
+        "DividendsPaid":     resolved["DividendsPaid"],
+        "ShareRepurchases":  resolved["ShareRepurchases"],
+        "quarters_used":     quarters_used,
+        "is_partial":        is_partial,
+        "most_recent_quarter": quarterly_periods[0],
+        "gross_margin":      margin(gross_profit),
+        "operating_margin":  margin(operating_income),
+        "net_margin":        margin(net_income),
+        "ebitda_margin":     margin(ebitda),
+        "fcf_margin":        margin(fcf),
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -3570,6 +3978,8 @@ class FactsDataProcessor:
         self.periods:        list[str] = []
         self.resolution_log: dict = {}
         self.data_flags:     list[str] = []
+        self.ttm:            dict | None = None   # set in load_data(); see _compute_ttm_bundle()
+        self._us_gaap:       dict | None = None   # cached in load_data() for recompute_ttm_for_sector()
         self.degraded_reason: str | None = None   # set when standard ingestion failed
         self._sic:            int | None = None
         self._fine_industry:  str | None = None
@@ -3627,6 +4037,7 @@ class FactsDataProcessor:
             return False
 
         us_gaap = facts.get("facts", {}).get("us-gaap", {})
+        self._us_gaap = us_gaap   # cached for recompute_ttm_for_sector()
         print(f"[DEBUG] {self.ticker}: us-gaap concept count = {len(us_gaap)}; "
               f"first 20 keys = {list(us_gaap.keys())[:20]}")
 
@@ -3671,6 +4082,19 @@ class FactsDataProcessor:
             "balance_sheet":    bs_log,
             "cash_flow":        cf_log,
         }
+
+        # -- TTM (trailing twelve months) via quarterly fact aggregation --
+        # Never fatal to the rest of load_data() -- a company we can't
+        # derive TTM for (e.g. sparse quarterly history) still gets its
+        # normal annual-basis financials; self.ttm just stays None.
+        try:
+            self.ttm = _compute_ttm_bundle(us_gaap, ticker=self.ticker,
+                                           sector=self.sector,
+                                           fine_industry=self._fine_industry or "")
+        except Exception as e:
+            logger.warning("facts_processor: TTM computation failed for %s -- %s",
+                           self.ticker, e)
+            self.ttm = None
 
         # Log unresolved items
         for stmt, log in self.resolution_log.items():
@@ -3784,6 +4208,41 @@ class FactsDataProcessor:
               f"periods={len(periods)}")
 
         return True
+
+    def recompute_ttm_for_sector(self, sector: str) -> None:
+        """
+        Recompute self.ttm using a corrected sector, if it differs from the
+        one load_data() used.
+
+        load_data() only has the filer's SIC-based sector guess available
+        when it computes TTM -- EquityAnalystOrchestrator._resolve_sector()
+        applies a further, more authoritative correction afterwards (a
+        curated static ticker->sector table takes priority over raw SIC
+        inference, e.g. for tickers a bare SIC code can't disambiguate).
+        Skipping this update silently leaves TTM computed under the wrong
+        sector's candidate routing -- confirmed live for JPM: SIC-based
+        inference alone left self.sector as "General", so TTM Revenue
+        resolved through the base waterfall's 10th candidate
+        (PrincipalTransactionsRevenue, a trading-revenue sub-component,
+        $29.4B) instead of the Financial Services sector override
+        (InterestIncomeExpenseNet), understating true revenue by ~84% vs.
+        yfinance ($186.3B). Annual-basis figures aren't affected by this --
+        _resolve_waterfall() is always called with the orchestrator's final
+        sector, not processor.sector; only the TTM path (computed earlier,
+        inside load_data()) needed this.
+
+        No-ops if TTM couldn't be computed at all, or if the sector is
+        unchanged (avoids redundant recomputation for the common case).
+        """
+        if not self._us_gaap or sector == self.sector:
+            return
+        try:
+            self.ttm = _compute_ttm_bundle(self._us_gaap, ticker=self.ticker,
+                                           sector=sector,
+                                           fine_industry=self._fine_industry or "")
+        except Exception as e:
+            logger.warning("facts_processor: TTM recompute failed for %s -- %s",
+                           self.ticker, e)
 
     def _load_via_fallback_chain(self) -> bool:
         """

@@ -442,6 +442,7 @@ class EquityAnalystOrchestrator:
             )
 
         sector = self._resolve_sector(ticker, sector, processor)
+        processor.recompute_ttm_for_sector(sector)
 
         profile = CompanyFinancialProfile(
             ticker     = ticker,
@@ -449,6 +450,7 @@ class EquityAnalystOrchestrator:
             market_cap = processor.market_cap,
             financials_payload = processor.financials,
             fine_industry = processor._fine_industry,
+            ttm = processor.ttm,
         )
 
         if not profile.periods:
@@ -868,6 +870,7 @@ class EquityAnalystOrchestrator:
             raise RuntimeError(f"Data ingestion failed for {ticker}.")
 
         sector = self._resolve_sector(ticker, sector, processor)
+        processor.recompute_ttm_for_sector(sector)
 
         profile = CompanyFinancialProfile(
             ticker             = ticker,
@@ -875,6 +878,7 @@ class EquityAnalystOrchestrator:
             market_cap         = processor.market_cap,
             financials_payload = processor.financials,
             fine_industry      = processor._fine_industry,
+            ttm                = processor.ttm,
         )
         if not profile.periods:
             raise RuntimeError(f"No financial periods parsed for {ticker}.")

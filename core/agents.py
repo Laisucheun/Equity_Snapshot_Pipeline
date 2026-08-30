@@ -2333,8 +2333,41 @@ class FundamentalAgent:
                             f"significant profitability deterioration"
                         )
 
+        # ── TTM (trailing twelve months) column ──────────────────────────────
+        # Flow-based margins only (Gross/Operating/EBITDA/Net/FCF) -- ROE,
+        # ROA, turnover ratios, DSI, efficiency ratio, ROIC/ROTCE/ROCE, and
+        # FFO/AFFO all mix a TTM flow numerator against a balance-sheet
+        # denominator that would need a most-recent-quarter (MRQ) balance
+        # sheet to do properly; this pipeline doesn't fetch quarterly BS
+        # data (see facts_processor._compute_ttm_bundle docstring), so
+        # those rows simply have no TTM entry rather than pairing a fresh
+        # TTM numerator with a stale FY-end denominator. gross_margin is
+        # also absent here for filers (e.g. WMT) that only resolve it via
+        # the annual pipeline's Revenue-minus-COGS derivation fallback,
+        # which the TTM path doesn't replicate.
+        ttm = getattr(profile, "ttm", None)
+        ttm_out = {"available": False}
+        if ttm:
+            ttm_out = {
+                "available":           True,
+                "gross_margin":        _pct(ttm.get("gross_margin"))
+                                       if ttm.get("gross_margin") is not None else "N/A",
+                "operating_margin":    _pct(ttm.get("operating_margin"))
+                                       if ttm.get("operating_margin") is not None else "N/A",
+                "ebitda_margin":       _pct(ttm.get("ebitda_margin"))
+                                       if ttm.get("ebitda_margin") is not None else "N/A",
+                "net_margin":          _pct(ttm.get("net_margin"))
+                                       if ttm.get("net_margin") is not None else "N/A",
+                "fcf_margin":          _pct(ttm.get("fcf_margin"))
+                                       if ttm.get("fcf_margin") is not None else "N/A",
+                "quarters_used":       ttm.get("quarters_used"),
+                "is_partial":          ttm.get("is_partial"),
+                "most_recent_quarter": ttm.get("most_recent_quarter"),
+            }
+
         return {
             "periods":              periods,
+            "ttm":                  ttm_out,
             "gross_margin":         gross_margin,
             "gross_margin_label":   gross_margin_label,
             "operating_margin":     op_margin,
@@ -3127,6 +3160,11 @@ class ValuationAgent:
         market_cap = profile.market_cap
         fcf_arr = cf.free_cash_flow
         cfo_arr = cf.operating_cash_flow
+        # TTM (trailing twelve months) -- see facts_processor._compute_ttm_bundle().
+        # None when TTM couldn't be computed (e.g. too little quarterly history);
+        # every _ttm.get(...) below degrades to the existing FY-basis figure in
+        # that case, so a ticker without TTM support just renders as it always did.
+        _ttm = getattr(profile, "ttm", None)
         _ffo_by_period  = (fundamental or {}).get("ffo", {}) or {}
         _affo_by_period = (fundamental or {}).get("affo", {}) or {}
 
@@ -3201,9 +3239,14 @@ class ValuationAgent:
 
             if i == 0:
                 cp = current_price
-                if cp and isinstance(eps, float) and eps > 0:
-                    pe_curr[p] = _fmt_x(cp / eps)
-                elif cp and isinstance(eps, float):
+                # P/E (TTM): current price / TTM EPS, falling back to
+                # FY-basis EPS when TTM isn't available for this ticker.
+                _ttm_ni = _ttm.get("NetIncome") if _ttm else None
+                curr_eps = (_ttm_ni / shares) if (_ttm_ni is not None and shares) \
+                          else (eps if isinstance(eps, float) else None)
+                if cp and isinstance(curr_eps, float) and curr_eps > 0:
+                    pe_curr[p] = _fmt_x(cp / curr_eps)
+                elif cp and isinstance(curr_eps, float):
                     pe_curr[p] = "Neg. EPS"
                 else:
                     pe_curr[p] = "N/A"
@@ -3270,9 +3313,12 @@ class ValuationAgent:
                 ev_sales_current[p] = "N/A (financials)" if i == 0 else "—"
             else:
                 if i == 0:
-                    if market_cap and rev:
+                    # EV/Sales (TTM): falls back to FY revenue when TTM isn't available.
+                    curr_rev = (_ttm.get("Revenue") if _ttm and _ttm.get("Revenue") is not None
+                               else rev)
+                    if market_cap and curr_rev:
                         ev_approx = market_cap + (debt or 0) + (op_lease or 0) + (fin_lease or 0)
-                        ev_sales_current[p] = _fmt_x(_safe_div(ev_approx, rev))
+                        ev_sales_current[p] = _fmt_x(_safe_div(ev_approx, curr_rev))
                     else:
                         ev_sales_current[p] = "N/A"
                 else:
@@ -3289,9 +3335,12 @@ class ValuationAgent:
                 ev_ebitda_current[p] = "N/A (financials)" if i == 0 else "—"
             else:
                 if i == 0:
-                    if market_cap and ebitda and ebitda > 0:
+                    # EV/EBITDA (TTM): falls back to FY EBITDA when TTM isn't available.
+                    curr_ebitda = (_ttm.get("EBITDA") if _ttm and _ttm.get("EBITDA") is not None
+                                  else ebitda)
+                    if market_cap and curr_ebitda and curr_ebitda > 0:
                         ev_approx = market_cap + (debt or 0) + (op_lease or 0) + (fin_lease or 0)
-                        ev_ebitda_current[p] = _fmt_x(_safe_div(ev_approx, ebitda))
+                        ev_ebitda_current[p] = _fmt_x(_safe_div(ev_approx, curr_ebitda))
                     else:
                         ev_ebitda_current[p] = "N/A"
                 else:
@@ -3453,8 +3502,12 @@ class ValuationAgent:
         curr_cash      = _safe_val(bal.cash, 0)
         curr_ev        = ((market_cap or 0) + (curr_debt or 0)
                            + (curr_op_lease or 0) + (curr_fin_lease or 0) - (curr_cash or 0))
-        curr_fcf   = _safe_val(fcf_arr, 0)
-        curr_cfo   = _safe_val(cfo_arr, 0)
+        # EV/FCF, EV/CFO, FCF/EV, CFO/EV (TTM): fall back to FY-basis FCF/CFO
+        # when TTM isn't available for this ticker.
+        _ttm_fcf = _ttm.get("FCF") if _ttm else None
+        _ttm_cfo = _ttm.get("CFO") if _ttm else None
+        curr_fcf   = _ttm_fcf if _ttm_fcf is not None else _safe_val(fcf_arr, 0)
+        curr_cfo   = _ttm_cfo if _ttm_cfo is not None else _safe_val(cfo_arr, 0)
         if _yf_shares_outstanding:
             curr_shares = float(_yf_shares_outstanding)
             curr_shares_source = "yfinance"

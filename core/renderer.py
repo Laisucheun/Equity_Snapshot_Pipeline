@@ -1759,93 +1759,147 @@ class EquityBriefRenderer:
         # ── Section 1: Fundamentals ──
         story += _section_header("1 · Fundamental Analysis", styles, anchor="s1")
 
-        fund_header = ["Metric"] + [_short_period(p) for p in periods]
         gm_label = fundamental.get("gross_margin_label", "Gross Margin")
         sg = fundamental.get("sector_group", "general")
+
+        # ── TTM column (trailing twelve months, via quarterly aggregation) ──
+        # Prepended as the first data column, before FY1. Only flow-based
+        # margins have a TTM figure -- see the "ttm" dict's construction in
+        # agents.py for why ROE/ROA/turnover/etc. are intentionally absent
+        # (would need a most-recent-quarter balance sheet this pipeline
+        # doesn't fetch). Rows without a TTM figure show "—" in that column
+        # so the FY columns stay aligned.
+        _ttm = fundamental.get("ttm") or {"available": False}
+        _ttm_on = _ttm.get("available", False)
+        _ttm_dagger = "†" if (_ttm_on and _ttm.get("is_partial")) else ""
+        fund_header = (["Metric"] + ([f"TTM{_ttm_dagger}"] if _ttm_on else [])
+                      + [_short_period(p) for p in periods])
+
+        def _ttm_cell(key: str) -> list:
+            if not _ttm_on:
+                return []
+            if sg == "financials" and key in ("gross_margin", "operating_margin", "net_margin"):
+                # TTM Revenue for Financial Services resolves through the same
+                # base "Revenue" candidate list the TTM path shares with the
+                # annual waterfall (InterestIncomeExpenseNet, i.e. NII alone)
+                # -- but the ANNUAL pipeline's Revenue additionally goes
+                # through a bank-specific post-processing step in
+                # facts_processor.load_data() (NII + NonInterestIncome, with
+                # capping against "Revenues") that the TTM path doesn't
+                # replicate. Confirmed live for JPM: TTM Revenue = NII alone
+                # ($99.8B) vs. the annual pipeline's properly-adjusted $182.4B
+                # (yfinance: $186.3B) -- an ~46% understatement that would
+                # otherwise inflate TTM Net Margin to a nonsensical 65%
+                # (real: ~30-35%). Suppressed until TTM replicates that
+                # adjustment; gross_margin was already suppressed for the
+                # unrelated reason that NIM isn't computed by the TTM bundle
+                # at all.
+                return ["—"]
+            return [_ttm.get(key, "—")]
 
         # Build fundamentals rows dynamically — only show rows meaningful for the sector
         fund_rows = []
         fund_rows.append(
-            [gm_label] + [fundamental["gross_margin"].get(p, "N/A") for p in periods]
+            [gm_label] + _ttm_cell("gross_margin")
+            + [fundamental["gross_margin"].get(p, "N/A") for p in periods]
         )
         fund_rows.append(
-            ["Operating Margin"] + [fundamental["operating_margin"].get(p, "N/A") for p in periods]
+            ["Operating Margin"] + _ttm_cell("operating_margin")
+            + [fundamental["operating_margin"].get(p, "N/A") for p in periods]
         )
         if sg != "financials":
             fund_rows.append(
-                ["EBITDA Margin"] + [fundamental["ebitda_margin"].get(p, "N/A") for p in periods]
+                ["EBITDA Margin"] + _ttm_cell("ebitda_margin")
+                + [fundamental["ebitda_margin"].get(p, "N/A") for p in periods]
             )
         fund_rows.append(
-            ["Net Margin"] + [fundamental["net_margin"].get(p, "N/A") for p in periods]
+            ["Net Margin"] + _ttm_cell("net_margin")
+            + [fundamental["net_margin"].get(p, "N/A") for p in periods]
         )
         fund_rows.append(
-            ["ROE"] + [fundamental["roe"].get(p, "N/A") for p in periods]
+            ["ROE"] + (["—"] if _ttm_on else []) + [fundamental["roe"].get(p, "N/A") for p in periods]
         )
         fund_rows.append(
-            ["ROA"] + [fundamental["roa"].get(p, "N/A") for p in periods]
+            ["ROA"] + (["—"] if _ttm_on else []) + [fundamental["roa"].get(p, "N/A") for p in periods]
         )
         if sg == "financials":
             fund_rows.append(
-                ["Efficiency Ratio"] + [fundamental["efficiency_ratio"].get(p, "N/A") for p in periods]
+                ["Efficiency Ratio"] + (["—"] if _ttm_on else [])
+                + [fundamental["efficiency_ratio"].get(p, "N/A") for p in periods]
             )
             fund_rows.append(
-                ["ROTCE"] + [fundamental["rotce"].get(p, "N/A") for p in periods]
+                ["ROTCE"] + (["—"] if _ttm_on else [])
+                + [fundamental["rotce"].get(p, "N/A") for p in periods]
             )
         else:
             fund_rows.append(
-                ["ROIC (proxy)"] + [fundamental["roic_proxy"].get(p, "N/A") for p in periods]
+                ["ROIC (proxy)"] + (["—"] if _ttm_on else [])
+                + [fundamental["roic_proxy"].get(p, "N/A") for p in periods]
             )
         fund_rows.append(
-            ["Asset Turnover"] + [fundamental["asset_turnover"].get(p, "N/A") for p in periods]
+            ["Asset Turnover"] + (["—"] if _ttm_on else [])
+            + [fundamental["asset_turnover"].get(p, "N/A") for p in periods]
         )
         if sg == "general":
             fund_rows.append(
-                ["Inv. Turnover"] + [fundamental["inventory_turnover"].get(p, "N/A") for p in periods]
+                ["Inv. Turnover"] + (["—"] if _ttm_on else [])
+                + [fundamental["inventory_turnover"].get(p, "N/A") for p in periods]
             )
             fund_rows.append(
-                ["Days Sales of Inv."] + [fundamental["dsi"].get(p, "N/A") for p in periods]
+                ["Days Sales of Inv."] + (["—"] if _ttm_on else [])
+                + [fundamental["dsi"].get(p, "N/A") for p in periods]
             )
         if sg == "real_estate" and fundamental.get("ffo_available"):
             # REITs: FFO/AFFO (NAREIT cash-flow standard) replace FCF Margin,
             # which is a GAAP-CFO-derived metric distorted by real-estate D&A
             # for this sector (see CFO/EV suppression note in Section 3).
+            # Not TTM'd -- FFO/AFFO aren't in _compute_ttm_bundle (see Stage 3
+            # scope note: only the standard flow/margin set is TTM'd there).
             def _fmt_ffo_row_val(v):
                 if not isinstance(v, (int, float)):
                     return "N/A"
                 return f"${v/1e6:,.0f}M"
             fund_rows.append(
-                ["FFO"] + [_fmt_ffo_row_val(fundamental["ffo"].get(p)) for p in periods]
+                ["FFO"] + (["—"] if _ttm_on else [])
+                + [_fmt_ffo_row_val(fundamental["ffo"].get(p)) for p in periods]
             )
             fund_rows.append(
-                ["FFO Margin"] + [fundamental["ffo_margin"].get(p, "N/A") for p in periods]
+                ["FFO Margin"] + (["—"] if _ttm_on else [])
+                + [fundamental["ffo_margin"].get(p, "N/A") for p in periods]
             )
             affo_label = "AFFO†" if fundamental.get("affo_uses_total_capex") else "AFFO"
             fund_rows.append(
-                [affo_label] + [_fmt_ffo_row_val(fundamental["affo"].get(p)) for p in periods]
+                [affo_label] + (["—"] if _ttm_on else [])
+                + [_fmt_ffo_row_val(fundamental["affo"].get(p)) for p in periods]
             )
             fund_rows.append(
-                ["AFFO Margin"] + [fundamental["affo_margin"].get(p, "N/A") for p in periods]
+                ["AFFO Margin"] + (["—"] if _ttm_on else [])
+                + [fundamental["affo_margin"].get(p, "N/A") for p in periods]
             )
         elif sg != "financials":
             fund_rows.append(
-                ["FCF Margin"] + [fundamental["fcf_margin"].get(p, "N/A") for p in periods]
+                ["FCF Margin"] + _ttm_cell("fcf_margin")
+                + [fundamental["fcf_margin"].get(p, "N/A") for p in periods]
             )
             # SBC rows sit in this same branch deliberately: they must be
             # suppressed exactly where FCF Margin is, and sharing the branch
             # (plus the _SUPPRESSION_ROW_ALIASES entry below) means there is
             # one suppression decision, not two that could drift apart.
+            # Not TTM'd -- SBC/Revenue and FCF-after-SBC need a TTM SBC/
+            # Revenue pairing this stage doesn't build; "—" keeps columns
+            # aligned rather than mixing a TTM numerator with an FY ratio.
             _sbc = fundamental.get("sbc", {}) or {}
             if _sbc.get("available"):
                 fund_rows.append(
-                    ["SBC / Revenue"]
+                    ["SBC / Revenue"] + (["—"] if _ttm_on else [])
                     + [_fmt_pct1(_sbc.get("sbc_pct_revenue", {}).get(p)) for p in periods]
                 )
                 fund_rows.append(
-                    ["FCF after SBC"]
+                    ["FCF after SBC"] + (["—"] if _ttm_on else [])
                     + [_fmt_nwc(_sbc.get("fcf_after_sbc", {}).get(p)) for p in periods]
                 )
                 fund_rows.append(
-                    ["FCF after SBC Mgn"]
+                    ["FCF after SBC Mgn"] + (["—"] if _ttm_on else [])
                     + [_fmt_pct1(_sbc.get("fcf_after_sbc_margin", {}).get(p)) for p in periods]
                 )
 
@@ -1907,7 +1961,14 @@ class EquityBriefRenderer:
         _sry = (valuation.get("shareholder_yields", {}) or {})
         if _sr.get("available"):
             def _sr_row(label, series, fmt):
-                return [label] + [fmt(series.get(p)) for p in periods]
+                # This table reuses fund_header (Section 1's), which gains a
+                # TTM column when TTM is available -- these rows must match
+                # or every FY value silently shifts one column left. None of
+                # these are TTM'd here (yields/payout ratios need a TTM
+                # market cap and net-of-issuance buyback figure this stage
+                # doesn't build), so it's always "—", never a real value.
+                return ([label] + (["—"] if _ttm_on else [])
+                       + [fmt(series.get(p)) for p in periods])
 
             _basis = _sr.get("payout_basis", "FCF")
             sr_rows = [
@@ -2364,10 +2425,16 @@ class EquityBriefRenderer:
         # ── Section 3: Valuation ──
         story += _section_header("3 · Valuation", styles, anchor="s3")
 
-        # One row per metric: "Current" (today's price) column first, then
-        # one FY-end-price column per historical period.
+        # One row per metric: "Current (TTM)" (today's price over trailing-
+        # twelve-month fundamentals) column first, then one FY-end-price
+        # column per historical period. P/B and P/TBV are the exception --
+        # book value is a balance-sheet (point-in-time) figure, so those two
+        # rows stay on an MRQ basis even though the column header says TTM;
+        # ValuationAgent never swaps their denominator for a TTM figure.
         curr_p = periods[0] if periods else "—"
-        val_header = ["Metric", "Current"] + [_short_period(p) for p in periods]
+        _val_ttm_on = bool(getattr(profile, "ttm", None))
+        _curr_col_label = "Current (TTM)" if _val_ttm_on else "Current"
+        val_header = ["Metric", _curr_col_label] + [_short_period(p) for p in periods]
 
         def _fmt_x_val(v):
             # fcf_ev/cfo_ev/cfo_per_share/ev_fcf/ev_cfo store raw
@@ -2478,6 +2545,23 @@ class EquityBriefRenderer:
         _val_subs  = {i for i, (_, s) in enumerate(_val_kept) if s}
         story.append(_emit_table(val_header, val_rows, sub_rows=_val_subs))
         story.append(Spacer(1, 2))
+        if _val_ttm_on:
+            _ttm_note_bits = []
+            _ttm_meta = fundamental.get("ttm", {}) or {}
+            if _ttm_meta.get("is_partial"):
+                _ttm_note_bits.append(
+                    f"†TTM based on {_ttm_meta.get('quarters_used')} of 4 quarters "
+                    f"(most recent: {_ttm_meta.get('most_recent_quarter', 'N/A')})."
+                )
+            story.append(Paragraph(
+                "Current (TTM): P/E, EV/EBITDA, EV/Sales, EV/FCF, EV/CFO, FCF/EV, "
+                "CFO/EV, and CFO/Share use trailing-twelve-month fundamentals against "
+                "today's price/EV, not the most recent fiscal year (which may be 6-12 "
+                "months stale). P/B and P/TBV use book value (a balance-sheet figure) "
+                "and remain on a most-recent-quarter basis regardless. "
+                + " ".join(_ttm_note_bits),
+                styles["meta"]
+            ))
 
         cp_str = f"${valuation.get('current_price', 0):.2f}" if valuation.get("current_price") else "N/A"
         story.append(Paragraph(
@@ -2487,7 +2571,8 @@ class EquityBriefRenderer:
         story.append(Paragraph(
             "FCF = CFO − CapEx (Pathway A). EV/FCF and EV/CFO shown as multiples (×); "
             "FCF/EV and CFO/EV shown as yield (%). "
-            "EV computed at FY-end price × shares + debt − cash.",
+            "EV computed at FY-end price × shares + debt + operating lease "
+            "liabilities + finance lease liabilities − cash.",
             styles["meta"]
         ))
         # ── Share-count anomaly footnotes ──
