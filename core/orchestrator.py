@@ -537,11 +537,34 @@ class EquityAnalystOrchestrator:
         processor = FactsDataProcessor(ticker, sector=sector)
         _ingestion_ok = processor.load_data(max_years=5)
         if not _ingestion_ok and not _is_known_edge_case:
+            # Recent IPOs have no 10-K yet — only S-1/S-1A registration
+            # filings — which is otherwise indistinguishable from a foreign
+            # filer or delisting in the generic message below. This branch
+            # only runs once _discover_periods has already found zero
+            # annual periods (the precondition for being here at all), so a
+            # concept-count pre-check adds no real savings — and would have
+            # skipped this exact check on EROC, which has 133 us-gaap
+            # concepts despite being a textbook S-1-only IPO with no 10-K
+            # (all of its facts are tagged with form S-1/S-1A, not 10-K).
+            try:
+                _forms = {f.form for f in edgar.Company(ticker).get_filings()}
+                _has_annual = bool(_forms & {"10-K", "10-K405", "20-F", "40-F"})
+                _has_s1     = bool(_forms & {"S-1", "S-1/A"})
+                if _has_s1 and not _has_annual:
+                    print(f"[{ticker}] appears to be a recent IPO — "
+                          f"only S-1/registration filings found, "
+                          f"no 10-K available yet")
+            except Exception:
+                pass
             raise RuntimeError(
                 f"No annual periods found for {ticker}. "
-                f"If this is a foreign filer, it may file 20-F instead of 10-K. "
-                f"If recently acquired, it may be delisted. "
-                f"Run: python scripts/test_ticker_availability.py --universe mag7"
+                f"Possible reasons:\n"
+                f"  - Recent IPO with no 10-K filed yet "
+                f"(only S-1/S-1A filings available)\n"
+                f"  - Foreign filer using 20-F instead of 10-K\n"
+                f"  - Recently acquired or delisted company\n"
+                f"  - XBRL data not yet available for this filer\n"
+                f"Check SEC EDGAR for {ticker}'s filing history."
             )
 
         sector = self._resolve_sector(ticker, sector, processor)
