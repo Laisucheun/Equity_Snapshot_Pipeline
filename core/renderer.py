@@ -3245,9 +3245,16 @@ class EquityBriefRenderer:
                 story.append(Spacer(1, 4))
 
             else:
-                # ── MODE C — Minimal: no transcript, or no guidance found ───
+                # ── MODE C — Minimal: no transcript, API unavailable, or ───
+                #             API worked but found no guidance
                 story += _section_header("7 · Management Track Record", styles, anchor="s7")
-                if _transcript_available:
+                if _transcript_available and not sga.get("api_available", True):
+                    msg = (
+                        "<b>Management Track Record:</b> earnings transcript "
+                        "available but guidance extraction requires Anthropic "
+                        "API access. See Section 6 for transcript summary."
+                    )
+                elif _transcript_available:
                     msg = (
                         f"<b>Management Track Record:</b> a transcript was found for "
                         f"{ticker} but no structured guidance figures were extracted."

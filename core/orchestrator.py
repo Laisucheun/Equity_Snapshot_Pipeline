@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 from core.agents import (
     FundamentalAgent, RiskAgent, ValuationAgent, TrendCommentaryAgent, GuidanceAgent,
     _extract_structured_guidance, _compare_guidance_to_actuals,
-    _score_structured_credibility,
+    _score_structured_credibility, _structured_guidance_api_available,
 )
 from core.renderer import EquityBriefRenderer
 
@@ -273,6 +273,7 @@ def _build_structured_guidance_analysis(ticker: str, guidance_analysis: dict,
 
     return {
         "available":        bool(forward_guidance or comparisons),
+        "api_available":    _structured_guidance_api_available(),
         "forward_guidance": forward_guidance,
         "prior_guidance":   prior_guidance,
         "comparisons":      comparisons,

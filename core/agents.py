@@ -5170,6 +5170,19 @@ _STRUCTURED_GUIDANCE_SYSTEM = (
 
 _anthropic_client = None
 _anthropic_unavailable_reason = None
+_anthropic_auth_failed = False   # set once a real call 401s (key present, invalid)
+
+
+def _structured_guidance_api_available() -> bool:
+    """
+    True if the Claude API appears usable for structured guidance
+    extraction this run — a client can be constructed and no prior call
+    has failed with an authentication error. Distinguishes "API
+    unavailable" from "API worked, found nothing" for Mode C's message.
+    """
+    if _anthropic_auth_failed:
+        return False
+    return _get_anthropic_client() is not None
 
 
 def _get_anthropic_client():
@@ -5222,6 +5235,10 @@ def _extract_structured_guidance(transcript_text: str, ticker: str) -> list[dict
     Uses the Claude API to extract; the model is instructed never to invent
     figures not present in the text. Returns an empty list if the transcript
     is empty, the API is unavailable, or no guidance is found — never raises.
+    API-only: no regex fallback. A regex fallback was tried and reverted —
+    without forward-looking context anchoring it mislabeled reported
+    actuals as guidance and produced false beat/miss verdicts (e.g. a
+    22x-gap "beat"), which is worse than Mode C's honest absence.
     """
     if not transcript_text or not transcript_text.strip():
         return []
@@ -5244,7 +5261,14 @@ def _extract_structured_guidance(transcript_text: str, ticker: str) -> list[dict
             messages=[{"role": "user", "content": user_prompt}],
         )
     except Exception as e:
-        logger.warning("_extract_structured_guidance(%s): API call failed — %s", ticker, e)
+        global _anthropic_auth_failed
+        if "401" in str(e) or "authentication" in str(e).lower():
+            # Free-resources users without API access — expected, not worth
+            # logging on every ticker. Mode C degrades honestly for these.
+            _anthropic_auth_failed = True
+        else:
+            logger.warning("_extract_structured_guidance(%s): unexpected API "
+                           "error — %s", ticker, e)
         return []
 
     text = "".join(
