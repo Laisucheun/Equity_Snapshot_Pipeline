@@ -3164,6 +3164,32 @@ _CF_BLOCKLIST = {
 # only this concept with no consolidated total. Fixed instead via
 # total-before-component ordering -- see _CONCEPT_IS_TOTAL below.
 
+# Waterfall label -> (ContinuingOperations concept, DiscontinuedOperations
+# concept). When a filer reclassifies a business as discontinued, the current
+# 10-K commonly restates every presented year split into these two tags with
+# NO consolidated total tag filed at all that period (ASC 205-20) -- the
+# waterfall's "total" candidates (NetCashProvidedByUsedInOperatingActivities
+# etc.) simply have no value, so resolution falls through to the
+# ContinuingOperations candidate alone, silently dropping the discontinued-ops
+# cash flow. Confirmed live for TFX FY2025 (divestiture): continuing-ops CFO
+# alone resolved to $96.7M; continuing ($96.7M) + discontinued ($244.0M) =
+# $340.7M, matching yfinance's $341M consensus almost exactly -- the
+# continuing-only figure understated CFO by 72%. See the combination pass in
+# _resolve_waterfall() below, which only fires when the resolved candidate IS
+# the ContinuingOperations tag (i.e. no consolidated total was found), so a
+# filer/period that already reports one full total is untouched.
+_CF_CONTINUING_DISCONTINUED_PAIRS = {
+    "NetCashFromOperatingActivities": (
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+        "CashProvidedByUsedInOperatingActivitiesDiscontinuedOperations"),
+    "NetCashFromInvestingActivities": (
+        "NetCashProvidedByUsedInInvestingActivitiesContinuingOperations",
+        "CashProvidedByUsedInInvestingActivitiesDiscontinuedOperations"),
+    "NetCashFromFinancingActivities": (
+        "NetCashProvidedByUsedInFinancingActivitiesContinuingOperations",
+        "CashProvidedByUsedInFinancingActivitiesDiscontinuedOperations"),
+}
+
 # -----------------------------------------------------------------------------
 # Period discovery
 # -----------------------------------------------------------------------------
@@ -3461,6 +3487,28 @@ def _resolve_waterfall(us_gaap: dict, waterfall: list, periods: list,
                         contributors.append(concept)
                 if len(contributors) > 1:
                     resolved_concept = "+".join(contributors)
+
+        # -- Continuing + discontinued operations combination -----------------
+        # See _CF_CONTINUING_DISCONTINUED_PAIRS above. Only fires when the
+        # resolved candidate is the *continuing-operations* tag, meaning no
+        # consolidated total was found for this label at all -- adds the
+        # discontinued-ops component into whichever periods the
+        # continuing-ops candidate already covers, leaving any period that
+        # already has a real consolidated total (a different filing year)
+        # untouched.
+        pair = _CF_CONTINUING_DISCONTINUED_PAIRS.get(label)
+        if pair and resolved_concept == pair[0]:
+            disc_vals = _extract_annual(us_gaap, pair[1], unit, is_instant=is_instant)
+            if disc_vals:
+                combined = False
+                for p in periods:
+                    dv = disc_vals.get(p)
+                    if dv is None or period_vals.get(p) is None:
+                        continue
+                    period_vals[p] += dv
+                    combined = True
+                if combined:
+                    resolved_concept = f"{pair[0]}+{pair[1]}"
 
         row = {
             "standard_concept": label,
