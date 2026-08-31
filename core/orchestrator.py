@@ -15,10 +15,17 @@ Prerequisites (same as existing notebook):
 """
 
 import os
+import logging
 import yfinance as yf
 import edgar
 
-from core.agents import FundamentalAgent, RiskAgent, ValuationAgent, TrendCommentaryAgent, GuidanceAgent
+logger = logging.getLogger(__name__)
+
+from core.agents import (
+    FundamentalAgent, RiskAgent, ValuationAgent, TrendCommentaryAgent, GuidanceAgent,
+    _extract_structured_guidance, _compare_guidance_to_actuals,
+    _score_structured_credibility,
+)
 from core.renderer import EquityBriefRenderer
 
 # ── Paste your existing classes here or import them ──
@@ -178,6 +185,101 @@ def _compute_management_quality(track_analysis: dict,
         "score":         round(composite),
         "components":    components,
         "available_pct": round(total_weight, 2),
+    }
+
+
+# ── Structured guidance analysis (LLM-based) — Section 7 rework ───────────────
+#
+# Independent of GuidanceTracker (financials/guidance_tracker.py, regex-based,
+# last 4 quarters): this builds a second, LLM-driven guidance-vs-actuals read
+# from a single prior-quarter transcript, using core.agents._extract_
+# structured_guidance / _compare_guidance_to_actuals. Both run; Section 7
+# decides per ticker which one has something to show.
+
+def _fetch_prior_transcript_text(ticker: str, transcript_loader) -> str:
+    """
+    Fetch and clean the Q-1 (second most recent) transcript's text, the same
+    way GuidanceTracker does for its own history walk. Returns "" if there
+    is no second transcript on record or the fetch/parse fails.
+    """
+    if not transcript_loader:
+        return ""
+    history = transcript_loader.get_history(ticker)
+    if len(history) < 2:
+        return ""
+    url = history[1]["url"]
+    try:
+        import requests
+        resp = requests.get(
+            url,
+            headers={"User-Agent": "EquityPipeline research@equitypipeline.com"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return ""
+        text, _ = TranscriptLoader._extract_guidance_text(resp.text, ticker)
+        return text or ""
+    except Exception as e:
+        logger.debug("_fetch_prior_transcript_text(%s): %s", ticker, e)
+        return ""
+
+
+def _build_actual_results(profile) -> dict:
+    """
+    Most-recent-period actuals for _compare_guidance_to_actuals, keyed by
+    lower-cased metric name to match _COMPARABLE_STRUCTURED_METRICS.
+
+    profile.income_statement fields are numpy arrays — a bare `if arr:`
+    truth-value check raises ValueError on multi-element arrays, so index
+    first and only then test the scalar. NaN entries (missing XBRL tag for
+    that period) are treated as absent, not as 0.
+    """
+    if not profile.periods:
+        return {}
+    inc = profile.income_statement
+    revenue = inc.revenue[0]      if len(inc.revenue)      > 0 else None
+    gp      = inc.gross_profit[0] if len(inc.gross_profit) > 0 else None
+    revenue = float(revenue) if revenue is not None and revenue == revenue else None
+    gp      = float(gp)      if gp is not None      and gp == gp      else None
+    actuals = {}
+    if revenue:
+        actuals["revenue"] = revenue
+    if gp and revenue:
+        actuals["gross margin"] = gp / revenue
+    return actuals
+
+
+def _build_structured_guidance_analysis(ticker: str, guidance_analysis: dict,
+                                        transcript_loader, profile) -> dict:
+    """
+    Assembles the Stage 2/3 (LLM-based) guidance analysis for Section 7:
+      - forward_guidance : structured guidance already extracted from the
+                            current transcript (GuidanceAgent.analyse output)
+      - comparisons       : prior-quarter guidance vs. current actuals
+                            (Revenue / Gross Margin only)
+      - credibility       : score from _score_structured_credibility, or
+                             None if there are no comparisons yet
+
+    "available" is True whenever there is a real transcript-derived source
+    to show (forward guidance or comparisons) — it does not require both.
+    """
+    forward_guidance = (guidance_analysis or {}).get("structured_guidance", []) or []
+
+    prior_text = _fetch_prior_transcript_text(ticker, transcript_loader)
+    prior_guidance = _extract_structured_guidance(prior_text, ticker) if prior_text else []
+    actual_results = _build_actual_results(profile)
+    comparisons = _compare_guidance_to_actuals(prior_guidance, actual_results)
+    credibility = _score_structured_credibility(comparisons)
+
+    return {
+        "available":        bool(forward_guidance or comparisons),
+        "forward_guidance": forward_guidance,
+        "prior_guidance":   prior_guidance,
+        "comparisons":      comparisons,
+        "credibility":      credibility,
+        "n_beats":  sum(1 for c in comparisons if c["outcome"] == "beat"),
+        "n_meets":  sum(1 for c in comparisons if c["outcome"] == "meet"),
+        "n_misses": sum(1 for c in comparisons if c["outcome"] == "miss"),
     }
 
 
@@ -692,11 +794,15 @@ class EquityAnalystOrchestrator:
             ex99_1=ex99_1,
             ex99_2=ex99_2,
             filing_date=_cached_8k_date,
+            ticker=ticker,
         )
         track_analysis = self._guidance_tracker.analyse(
             ticker, profile, self._transcript,
             cache=self._cache,
             earnings_text=earnings_text or "",
+        )
+        structured_guidance_analysis = _build_structured_guidance_analysis(
+            ticker, guidance_analysis, self._transcript, profile
         )
         execution_quality     = _compute_execution_quality(track_analysis)
         communication_quality = _compute_communication_quality(
@@ -802,6 +908,7 @@ class EquityAnalystOrchestrator:
                 commentary        = commentary,
                 guidance_analysis = guidance_analysis,
                 track_analysis    = track_analysis,
+                structured_guidance_analysis = structured_guidance_analysis,
                 execution_quality     = execution_quality,
                 communication_quality = communication_quality,
                 management_quality    = management_quality,
@@ -926,11 +1033,15 @@ class EquityAnalystOrchestrator:
             ex99_1=ex99_1,
             ex99_2=ex99_2,
             filing_date=_8k_date,
+            ticker=ticker,
         )
         track_analysis = self._guidance_tracker.analyse(
             ticker, profile, self._transcript,
             cache=self._cache,
             earnings_text=earnings_text or "",
+        )
+        structured_guidance_analysis = _build_structured_guidance_analysis(
+            ticker, guidance_analysis, self._transcript, profile
         )
         execution_quality     = _compute_execution_quality(track_analysis)
         communication_quality = _compute_communication_quality(
@@ -977,6 +1088,7 @@ class EquityAnalystOrchestrator:
             "commentary":  commentary,
             "guidance":    guidance_analysis,
             "track_analysis":        track_analysis,
+            "structured_guidance_analysis": structured_guidance_analysis,
             "execution_quality":     execution_quality,
             "communication_quality": communication_quality,
             "management_quality":    management_quality,

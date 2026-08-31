@@ -1292,6 +1292,7 @@ class EquityBriefRenderer:
                commentary: dict,        # TrendCommentaryAgent output
                guidance_analysis: dict = None,  # GuidanceAgent output
                track_analysis: dict = None,     # GuidanceTracker output
+               structured_guidance_analysis: dict = None,  # LLM-based guidance analysis
                execution_quality: dict = None,  # ExecutionQuality output
                communication_quality: dict = None,  # CommunicationQuality output
                management_quality: dict = None,     # Composite score output
@@ -1358,7 +1359,6 @@ class EquityBriefRenderer:
         _guidance  = commentary.get("management_guidance", [])
         _needs_p2  = bool(_narrative or _guidance)
         _ga_avail  = bool((guidance_analysis or {}).get("available")) or bool(_guidance)
-        _ta_avail  = bool((track_analysis or {}).get("available"))
         _own_avail = bool(ownership or fundamental.get("ownership")) or bool(insider_activity)
 
         # Section 2B renders only for industries with a meaningful operating
@@ -1382,8 +1382,10 @@ class EquityBriefRenderer:
             _TOC_SECTIONS.append(("s5", "5 · Trend Commentary"))
             if _ga_avail:
                 _TOC_SECTIONS.append(("s6", "6 · Management Guidance & Tone"))
-            if _ta_avail:
-                _TOC_SECTIONS.append(("s7", "7 · Management Track Record"))
+            # Section 7 always renders something — at minimum Mode C's
+            # one-line "no transcript available" — so it always gets a TOC
+            # anchor once page 2 exists at all.
+            _TOC_SECTIONS.append(("s7", "7 · Management Track Record"))
         if _own_avail:
             _TOC_SECTIONS.append(("s8", "8 · Insider & Institutional Information"))
         _TOC_SECTIONS.append(("appendix", "Appendix · Abbreviations"))
@@ -3042,249 +3044,128 @@ class EquityBriefRenderer:
 
                 story.append(Spacer(1, 6))
 
-            # ── Section 7: Management Track Record ──
-            ta = track_analysis or {}
-            # Number of guidance-vs-actual comparisons actually made. With
-            # none, the whole scoring apparatus below has nothing to score,
-            # and rendering it fills a page to report an absence.
-            _ta_quarters = ta.get("quarters", []) or []
-            _ta_comparisons = sum(
-                1
-                for _q in _ta_quarters
-                for _k in ("revenue", "eps", "gross_margin")
-                if (_q.get(_k) or {}).get("outcome")
-            )
-            if ta.get("available") and _ta_comparisons == 0:
+            # ── Section 7: Management Track Record ──────────────────────────
+            # Three display modes, driven by structured_guidance_analysis
+            # (LLM-based extraction — core.agents._extract_structured_guidance
+            # / _compare_guidance_to_actuals). track_analysis (GuidanceTracker,
+            # regex-based) still drives Communication Score / Execution
+            # Quality below and its own flags, which carry signal the new
+            # engine doesn't compute.
+            ta  = track_analysis or {}
+            sga = structured_guidance_analysis or {}
+            forward_guidance = sga.get("forward_guidance", []) or []
+            comparisons      = sga.get("comparisons", []) or []
+            s7_credibility   = sga.get("credibility")
+            _transcript_available = bool((guidance_analysis or {}).get("available"))
+
+            def _fmt_native(val, unit):
+                if val is None:
+                    return "—"
+                u = (unit or "").upper()
+                if "B" in u:
+                    return f"${val:,.2f}B"
+                if "M" in u:
+                    return f"${val:,.0f}M"
+                if "%" in u:
+                    return f"{val:.1f}%"
+                if u == "$":
+                    return f"${val:,.2f}"
+                return f"{val:,.2f}"
+
+            def _fmt_forward_guidance_value(item):
+                lo, hi = item.get("low"), item.get("high")
+                mid, unit = item.get("midpoint"), item.get("unit")
+                if lo is not None and hi is not None and lo != hi:
+                    s = f"{_fmt_native(lo, unit)}–{_fmt_native(hi, unit)}"
+                    if mid is not None:
+                        s += f" (midpoint {_fmt_native(mid, unit)})"
+                    return s
+                if mid is not None:
+                    return f"~{_fmt_native(mid, unit)}"
+                if lo is not None:
+                    return _fmt_native(lo, unit)
+                return (item.get("raw_text") or "—")[:80]
+
+            def _small_table(hdrs, data_rows, col_w):
+                rows = [hdrs] + data_rows
+                t = Table(rows, colWidths=col_w, repeatRows=1)
+                t.setStyle(TableStyle([
+                    ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#2C3E50")),
+                    ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.HexColor("#FFFFFF")),
+                    ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
+                    ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
+                    ("ROWBACKGROUNDS",(0, 1), (-1, -1),
+                     [colors.HexColor("#F8F9FA"), colors.HexColor("#FFFFFF")]),
+                    ("GRID",          (0, 0), (-1, -1), 0.3, colors.HexColor("#BDC3C7")),
+                    ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]))
+                return t
+
+            if comparisons:
+                # ── MODE A — Full: 1+ guidance comparisons available ────────
                 story += _section_header("7 · Management Track Record", styles, anchor="s7")
+
+                n_beats  = sum(1 for c in comparisons if c["outcome"] == "beat")
+                n_meets  = sum(1 for c in comparisons if c["outcome"] == "meet")
+                n_misses = sum(1 for c in comparisons if c["outcome"] == "miss")
+                cred_val = s7_credibility if s7_credibility is not None else 50
+                cred_color = (
+                    "#27AE60" if cred_val >= 70
+                    else "#E67E22" if cred_val >= 45
+                    else "#E74C3C"
+                )
                 story.append(Paragraph(
-                    f"<b>Management Track Record:</b> insufficient guidance "
-                    f"history ({_ta_comparisons} comparisons across "
-                    f"{len(_ta_quarters)} quarters). Scoring resumes once 4+ "
-                    f"quarters of guidance vs. actuals are available.",
+                    f"<b>Credibility Score: <font color='{cred_color}'>{cred_val}/100</font></b>"
+                    f"  &nbsp;&nbsp;{n_beats} beats, {n_misses} misses, {n_meets} meets "
+                    f"across {len(comparisons)} comparisons",
                     styles["body"]
                 ))
                 story.append(Spacer(1, 6))
-            elif ta.get("available"):
-                story += _section_header("7 · Management Track Record", styles, anchor="s7")
 
-                # ── Composite Management Quality Score ────────────────────
-                mq = management_quality or {}
-                mq_score = mq.get("score")
-                if mq_score is not None:
-                    mq_color = (
-                        "#27AE60" if mq_score >= 70
-                        else "#E67E22" if mq_score >= 45
-                        else "#E74C3C"
-                    )
-                    avail_pct = mq.get("available_pct", 1.0)
-                    avail_note = (
-                        "" if avail_pct >= 0.99
-                        else f"  <font color='#7F8C8D'>(based on {int(avail_pct*100)}% of full weighting)</font>"
-                    )
+                story.append(Paragraph("<b>Prior Guidance vs Actuals</b>", styles["body"]))
+                story.append(Spacer(1, 2))
+                _outcome_style = {
+                    "beat": ("#27AE60", "✓ Beat"),
+                    "meet": ("#2980B9", "= Meet"),
+                    "miss": ("#E74C3C", "✗ Miss"),
+                }
+                comp_rows = []
+                for c in comparisons:
+                    unit = c.get("unit")
+                    guided_str = f"{_fmt_native(c['guided_low'], unit)}–{_fmt_native(c['guided_high'], unit)}"
+                    actual_str = _fmt_native(c["actual"], unit)
+                    o_color, o_label = _outcome_style.get(c["outcome"], ("#7F8C8D", c["outcome"]))
+                    comp_rows.append([
+                        c["metric"], c.get("period") or "—", guided_str, actual_str,
+                        Paragraph(f"<font color='{o_color}'><b>{o_label}</b></font>", styles["body"]),
+                    ])
+                story.append(_small_table(
+                    ["Metric", "Period", "Guided Range", "Actual", "Outcome"],
+                    comp_rows, [30*mm, 22*mm, 42*mm, 28*mm, 24*mm]
+                ))
+                story.append(Spacer(1, 8))
+
+                if forward_guidance:
                     story.append(Paragraph(
-                        f"<b>Management Quality Score: "
-                        f"<font color='{mq_color}'>{mq_score}/100</font></b>"
-                        f"{avail_note}",
+                        "<b>Forward Guidance</b>  "
+                        "<font size=7 color='#7F8C8D'>(from most recent transcript)</font>",
                         styles["body"]
                     ))
-                    story.append(Spacer(1, 4))
-
-                    # Component breakdown row
-                    comps = mq.get("components", {})
-                    comp_rows = [[
-                        Paragraph("<b>Component</b>", styles["meta"]),
-                        Paragraph("<b>Weight</b>",    styles["meta"]),
-                        Paragraph("<b>Score</b>",     styles["meta"]),
-                        Paragraph("<b>Contribution</b>", styles["meta"]),
-                    ]]
-                    total_w = sum(
-                        v["base_weight"] for v in comps.values()
-                        if v.get("score") is not None
-                    ) or 1.0
-                    for key in ["accuracy", "execution", "communication"]:
-                        c = comps.get(key, {})
-                        c_score  = c.get("score")
-                        c_weight = c.get("base_weight", 0)
-                        c_label  = c.get("label", key.title())
-                        eff_w    = c_weight / total_w
-                        if c_score is not None:
-                            contrib  = round(c_score * eff_w)
-                            s_color  = (
-                                "#27AE60" if c_score >= 70
-                                else "#E67E22" if c_score >= 45
-                                else "#E74C3C"
-                            )
-                            score_str  = f"<font color='{s_color}'>{c_score}/100</font>"
-                            contrib_str = f"{contrib}pts"
-                        else:
-                            score_str   = "<font color='#95A5A6'>N/A</font>"
-                            contrib_str = "—"
-                        comp_rows.append([
-                            Paragraph(c_label, styles["body"]),
-                            Paragraph(f"{int(c_weight*100)}%", styles["body"]),
-                            Paragraph(score_str, styles["body"]),
-                            Paragraph(contrib_str, styles["body"]),
-                        ])
-
-                    comp_tbl = Table(comp_rows, colWidths=[45*mm, 18*mm, 22*mm, 25*mm])
-                    comp_tbl.setStyle(TableStyle([
-                        ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#2C3E50")),
-                        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.HexColor("#FFFFFF")),
-                        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-                        ("ROWBACKGROUNDS",(0, 1), (-1, -1),
-                         [colors.HexColor("#F8F9FA"), colors.HexColor("#FFFFFF")]),
-                        ("GRID",          (0, 0), (-1, -1), 0.3, colors.HexColor("#BDC3C7")),
-                        ("ALIGN",         (1, 0), (-1, -1), "CENTER"),
-                        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-                        ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-                        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ]))
-                    story.append(comp_tbl)
+                    story.append(Spacer(1, 2))
+                    fwd_rows = [
+                        [g["metric"], g.get("period") or "—", _fmt_forward_guidance_value(g)]
+                        for g in forward_guidance
+                    ]
+                    story.append(_small_table(
+                        ["Metric", "Period", "Guidance"], fwd_rows,
+                        [30*mm, 22*mm, 94*mm]
+                    ))
                     story.append(Spacer(1, 8))
 
-                # Summary bar
-                cred   = ta.get("credibility")   # None = unrated
-                cred_note = ta.get("credibility_note")
-                trend  = ta.get("trend", "insufficient data")
-                attrib = ta.get("attribution", {})
-                ext_pct = attrib.get("external_pct", 0) * 100
-                int_pct = attrib.get("internal_pct", 0) * 100
-
-                # Credibility score colour — grey when unrated
-                if cred is None:
-                    cred_str   = "Unrated"
-                    cred_color = "#7F8C8D"
-                else:
-                    cred_str   = f"{cred}/100"
-                    cred_color = (
-                        "#27AE60" if cred >= 70
-                        else "#E67E22" if cred >= 45
-                        else "#E74C3C"
-                    )
-                # Attribution counts external-macro vs internal-execution
-                # LANGUAGE in the transcripts, not outcomes of guidance
-                # misses -- so it can be non-zero with zero comparisons,
-                # where it reads as if misses had been attributed when none
-                # were measured. Shown only when there is something to
-                # attribute, and labelled for what it actually counts.
-                _attr_str = ""
-                if _ta_comparisons > 0 and (ext_pct or int_pct):
-                    _attr_str = (f"  &nbsp;&nbsp;Miss language: "
-                                 f"{ext_pct:.0f}% external / "
-                                 f"{int_pct:.0f}% internal")
-                story.append(Paragraph(
-                    f"<b>Credibility Score:</b> "
-                    f"<font color='{cred_color}'><b>{cred_str}</b></font>  "
-                    f"&nbsp;&nbsp;Trend: <b>{trend.title()}</b>"
-                    f"{_attr_str}",
-                    styles["body"]
-                ))
-                if _attr_str:
-                    story.append(Paragraph(
-                        "Miss language is the share of external-macro vs. "
-                        "internal-execution wording in management's own "
-                        "explanations across the quarters analysed — a measure "
-                        "of how misses are framed, not of what caused them.",
-                        styles["meta"]
-                    ))
-                if cred_note:
-                    story.append(Paragraph(
-                        f"<i>Note: {cred_note}</i>",
-                        styles["meta"]
-                    ))
-                story.append(Spacer(1, 6))
-
-                # Per-quarter table
-                quarters = ta.get("quarters", [])
-                if quarters:
-                    # Build table data
-                    hdrs = ["Quarter", "Metric", "Guided", "Actual", "Outcome"]
-                    rows = [hdrs]
-                    for q in quarters:
-                        q_label = (
-                            f"Q{q['quarter']} FY{q['fiscal_year']}"
-                            if q.get("quarter") and q.get("fiscal_year")
-                            else q.get("date","")[:7]
-                        )
-                        def _fmt_rev(v):
-                            if v is None: return "—"
-                            if v >= 1e9:  return f"${v/1e9:.2f}B"
-                            if v >= 1e6:  return f"${v/1e6:.0f}M"
-                            return f"${v:,.0f}"
-
-                        def _outcome_color(out):
-                            if "BEAT"   in out: return "#27AE60"
-                            if "MISS"   in out: return "#E74C3C"
-                            if "INLINE" in out: return "#2980B9"
-                            return "#7F8C8D"
-
-                        for metric_key, metric_label, fmt_fn in [
-                            ("revenue",      "Revenue",     _fmt_rev),
-                            ("eps",          "EPS",         lambda v: f"${v:.2f}" if v else "—"),
-                            ("gross_margin", "Gross Margin",lambda v: f"{v*100:.1f}%" if v else "—"),
-                        ]:
-                            m = q.get(metric_key, {})
-                            if not m or not m.get("outcome"):
-                                continue
-                            out = m.get("outcome", "")
-                            if out.startswith("PERIOD MISMATCH"):
-                                # Period mismatches (annual guidance vs quarterly
-                                # actual or vice versa) are excluded from the
-                                # track record table per the footnote
-                                # methodology — they are not real beat/miss/
-                                # inline outcomes.
-                                continue
-                            lo  = m.get("guided_low")
-                            hi  = m.get("guided_high")
-                            act = m.get("actual")
-                            guided_str = (
-                                f"{fmt_fn(lo)} – {fmt_fn(hi)}"
-                                if lo and hi else "—"
-                            )
-                            color = _outcome_color(out)
-                            rows.append([
-                                q_label,
-                                metric_label,
-                                guided_str,
-                                fmt_fn(act),
-                                Paragraph(f"<font color='{color}'><b>{out}</b></font>",
-                                          styles["body"]),
-                            ])
-                            q_label = ""   # only show quarter label on first row
-
-                    if len(rows) > 1:
-                        col_w = [22*mm, 28*mm, 38*mm, 28*mm, 30*mm]
-                        tbl = Table(rows, colWidths=col_w, repeatRows=1)
-                        tbl.setStyle(TableStyle([
-                            ("BACKGROUND",  (0,0), (-1,0),  colors.HexColor("#2C3E50")),
-                            ("TEXTCOLOR",   (0,0), (-1,0),  colors.HexColor("#FFFFFF")),
-                            ("FONTNAME",    (0,0), (-1,0),  "Helvetica-Bold"),
-                            ("FONTSIZE",    (0,0), (-1,-1), 7.5),
-                            ("ROWBACKGROUNDS", (0,1), (-1,-1),
-                             [colors.HexColor("#F8F9FA"), colors.HexColor("#FFFFFF")]),
-                            ("GRID",        (0,0), (-1,-1), 0.3, colors.HexColor("#BDC3C7")),
-                            ("ALIGN",       (2,1), (-1,-1), "RIGHT"),
-                            ("LEFTPADDING", (0,0), (-1,-1), 4),
-                            ("RIGHTPADDING",(0,0), (-1,-1), 4),
-                            ("TOPPADDING",  (0,0), (-1,-1), 3),
-                            ("BOTTOMPADDING",(0,0),(-1,-1), 3),
-                        ]))
-                        story.append(tbl)
-                        story.append(Spacer(1, 6))
-
-                # Tracker flags
-                for flag in ta.get("flags", []):
-                    story.append(Paragraph(flag, styles["flag"]))
-                    story.append(Spacer(1, 2))
-
-                # Summary line
-                if ta.get("summary"):
-                    story.append(Paragraph(
-                        ta["summary"], styles["meta"]
-                    ))
-
-                # ── Communication Score ────────────────────────────────────
                 cq = communication_quality or {}
                 cq_score = cq.get("score")
                 if cq_score is not None:
@@ -3293,104 +3174,91 @@ class EquityBriefRenderer:
                         else "#E67E22" if cq_score >= 45
                         else "#E74C3C"
                     )
-                    story.append(Spacer(1, 4))
                     story.append(Paragraph(
                         f"<b>Communication Score:</b> "
-                        f"<font color='{cq_color}'><b>{cq_score}/100</b></font>"
-                        f"  &nbsp;&nbsp;<font color='#7F8C8D'>"
-                        f"{cq.get('alignment', '')} "
-                        f"({cq.get('tone_label', '')}, "
-                        f"credibility {cq.get('credibility', '?')}/100)</font>",
+                        f"<font color='{cq_color}'><b>{cq_score}/100</b></font>",
                         styles["body"]
                     ))
 
-                # ── Execution Quality ──────────────────────────────────────
                 eq = execution_quality or {}
-                eq_score    = eq.get("score")
-                eq_quarters = eq.get("quarters", [])
-
-                story.append(Spacer(1, 8))
-                story += _section_header("Execution Quality", styles)
-
-                if eq_score is None or not eq_quarters:
-                    story.append(Paragraph(
-                        "Insufficient scored quarters to compute execution quality.",
-                        styles["meta"]
-                    ))
-                else:
+                eq_score = eq.get("score")
+                if eq_score is not None:
                     eq_color = (
                         "#27AE60" if eq_score >= 70
                         else "#E67E22" if eq_score >= 45
                         else "#E74C3C"
                     )
                     story.append(Paragraph(
-                        f"<b>Execution Score:</b> "
-                        f"<font color='{eq_color}'><b>{eq_score}/100</b></font>"
-                        f"  &nbsp;&nbsp;<font color='#7F8C8D'>"
-                        f"({eq.get('n_quarters', 0)} scored quarter(s))</font>",
+                        f"<b>Execution Quality:</b> "
+                        f"<font color='{eq_color}'><b>{eq_score}/100</b></font>",
                         styles["body"]
                     ))
-                    story.append(Spacer(1, 6))
-                    bar_rows = [["Quarter", "Rev Δ%", "GM Δpp", "Score"]]
-                    for qd in eq_quarters:
-                        rev_str = (f"{qd['rev_delta_pct']:+.1f}%"
-                                   if qd["rev_delta_pct"] is not None else "—")
-                        gm_str  = (f"{qd['gm_delta_pp']:+.1f}pp"
-                                   if qd["gm_delta_pp"] is not None else "—")
-                        qs = qd["quarter_score"]
-                        qs_color = (
-                            "#27AE60" if qs >= 70
-                            else "#E67E22" if qs >= 45
-                            else "#E74C3C"
-                        )
-                        bar_rows.append([
-                            qd["label"], rev_str, gm_str,
-                            Paragraph(
-                                f"<font color='{qs_color}'><b>{qs}/100</b></font>",
-                                styles["body"]
-                            ),
-                        ])
-                    col_w = [30*mm, 25*mm, 25*mm, 30*mm]
-                    eq_tbl = Table(bar_rows, colWidths=col_w, repeatRows=1)
-                    eq_tbl.setStyle(TableStyle([
-                        ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#34495E")),
-                        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.HexColor("#FFFFFF")),
-                        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
-                        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-                        ("ROWBACKGROUNDS",(0, 1), (-1, -1),
-                         [colors.HexColor("#F8F9FA"), colors.HexColor("#FFFFFF")]),
-                        ("GRID",          (0, 0), (-1, -1), 0.3, colors.HexColor("#BDC3C7")),
-                        ("ALIGN",         (1, 1), (-1, -1), "RIGHT"),
-                        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-                        ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-                        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ]))
-                    story.append(eq_tbl)
-                    story.append(Spacer(1, 4))
+                story.append(Spacer(1, 4))
 
-                # ── Section 7 Footnote ─────────────────────────────────────
-                story.append(Spacer(1, 10))
-                footnote_style = ParagraphStyle(
-                    "s7_footnote",
-                    parent=styles["meta"],
-                    fontSize=6.5,
-                    textColor=colors.HexColor("#95A5A6"),
-                    fontName="Helvetica-Oblique",
-                )
+                for flag in ta.get("flags", []):
+                    story.append(Paragraph(flag, styles["flag"]))
+                    story.append(Spacer(1, 2))
+
+            elif forward_guidance:
+                # ── MODE B — Partial: guidance extracted, no prior period ───
+                story += _section_header("7 · Management Track Record", styles, anchor="s7")
+
+                _n_quarters = len(ta.get("quarters", []) or [])
                 story.append(Paragraph(
-                    "<b>Scoring methodology:</b> "
-                    "Management Quality Score = Guidance Accuracy (40%) + Execution Quality (40%) "
-                    "+ Communication Quality (20%); weights renormalised when components are unavailable. "
-                    "Credibility Score (0–100): 100 = all beats, 0 = all misses; Unrated when no guidance comparisons available (feature in development). "
-                    "Execution Score (0–100): actual vs guided midpoint — revenue ±25% range, GM ±10pp; "
-                    "50 = on guide, 100 = max beat. "
-                    "Communication Score (0–100): tone-outcome alignment — Confident + strong delivery = 90; "
-                    "Confident + weak delivery = 20; Cautious + strong delivery = 70. "
-                    "Period mismatches (annual guidance vs quarterly actual) excluded. "
-                    "All figures from public SEC filings and earnings transcripts; not independently verified.",
-                    footnote_style
+                    f"<b>Credibility:</b> Unrated — no prior period to compare "
+                    f"against ({_n_quarters} quarter(s) reviewed, guidance "
+                    f"figures not consistently comparable across periods).",
+                    styles["body"]
                 ))
+                story.append(Spacer(1, 6))
+
+                story.append(Paragraph(
+                    "<b>Forward Guidance</b>  "
+                    "<font size=7 color='#7F8C8D'>(from most recent transcript)</font>",
+                    styles["body"]
+                ))
+                story.append(Spacer(1, 2))
+                fwd_rows = [
+                    [g["metric"], g.get("period") or "—", _fmt_forward_guidance_value(g)]
+                    for g in forward_guidance
+                ]
+                story.append(_small_table(
+                    ["Metric", "Period", "Guidance"], fwd_rows,
+                    [30*mm, 22*mm, 94*mm]
+                ))
+                story.append(Spacer(1, 6))
+
+                cq = communication_quality or {}
+                cq_score = cq.get("score")
+                if cq_score is not None:
+                    cq_color = (
+                        "#27AE60" if cq_score >= 70
+                        else "#E67E22" if cq_score >= 45
+                        else "#E74C3C"
+                    )
+                    story.append(Paragraph(
+                        f"<b>Communication Score:</b> "
+                        f"<font color='{cq_color}'><b>{cq_score}/100</b></font>"
+                        f"  &nbsp;&nbsp;<font color='#7F8C8D'>(tone vs. delivery)</font>",
+                        styles["body"]
+                    ))
+                story.append(Spacer(1, 4))
+
+            else:
+                # ── MODE C — Minimal: no transcript, or no guidance found ───
+                story += _section_header("7 · Management Track Record", styles, anchor="s7")
+                if _transcript_available:
+                    msg = (
+                        f"<b>Management Track Record:</b> a transcript was found for "
+                        f"{ticker} but no structured guidance figures were extracted."
+                    )
+                else:
+                    msg = (
+                        f"<b>Management Track Record:</b> No earnings transcript "
+                        f"available for {ticker}. Section omitted."
+                    )
+                story.append(Paragraph(msg, styles["body"]))
+                story.append(Spacer(1, 6))
 
         # ── Section 8: Insider & Institutional Information ─────────────────────
         _own = ownership or fundamental.get("ownership") or {}

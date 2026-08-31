@@ -17,7 +17,11 @@ reportlab==4.4.10
 # PDF validation (test_pipeline.py only)
 pypdf==5.9.0
 
+# LLM-based structured guidance extraction (Section 7)
+anthropic==1.2.0
+
 # Transitive — pin to avoid breakage across edgartools / yfinance updates
 httpx==0.28.1            # edgartools HTTP client
 lxml==6.0.2              # HTML/XML parsing used by edgartools
 requests==2.33.1         # yfinance HTTP client
+python-dotenv==1.2.3     # core/config.py .env loader (was missing from this file)

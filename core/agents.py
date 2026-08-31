@@ -17,6 +17,7 @@ Agents:
 
 import re
 import csv
+import json
 import logging
 import pathlib
 
@@ -4739,7 +4740,8 @@ class GuidanceAgent:
                 fool_transcript: dict = None,   # Motley Fool earnings call
                 ex99_1: dict = None,            # EDGAR 8-K Exhibit 99.1 press release
                 ex99_2: dict = None,            # EDGAR 8-K Exhibit 99.2 prepared remarks
-                filing_date: str = None) -> dict:
+                filing_date: str = None,
+                ticker: str = None) -> dict:
         """
         Extract guidance from all available sources independently.
         Each source is extracted and categorised separately so the
@@ -4941,10 +4943,20 @@ class GuidanceAgent:
         # Primary source label for header
         source = (fool_label or ex99_2_label or mda_source or ex99_1_label or "unavailable")
 
+        # ── Structured forward guidance (LLM extraction) ──────────────────
+        # Run on the actual earnings-call text only (Fool transcript first,
+        # then EDGAR prepared remarks) — MD&A fallback text is not an
+        # earnings call and is far more likely to produce false positives.
+        _structured_source_text = fool_text or ex99_2_text or ""
+        structured_guidance = _extract_structured_guidance(
+            _structured_source_text, ticker or "UNKNOWN"
+        )
+
         return {
             "available":    True,
             "source":       source,
             "filing_date":  filing_date or "N/A",
+            "structured_guidance": structured_guidance,
             # Legacy combined key
             "categories":   all_cats,
             # Per-source keys for renderer subsections
@@ -5109,6 +5121,7 @@ class GuidanceAgent:
             "available":    False,
             "source":       source,
             "filing_date":  filing_date or "N/A",
+            "structured_guidance": [],
             "categories":   {cat: [] for cat in _CAT_PATTERNS},
             "tone":         {"label": "N/A", "score": 0.0, "signals": []},
             "raw_sentences":     [],
@@ -5133,6 +5146,271 @@ class GuidanceAgent:
             "edgar_source":      None,
             "edgar_cats":        {cat: [] for cat in _CAT_PATTERNS},
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Structured guidance extraction (LLM-based) — Section 7 rework, Stage 2
+#
+# Independent of GuidanceTracker's regex-based backward comparison
+# (financials/guidance_tracker.py): this extracts structured numeric
+# guidance from a single transcript via the Claude API, for display as
+# forward guidance and — via _compare_guidance_to_actuals below — for a
+# second, LLM-driven guidance-vs-actuals credibility read.
+# ─────────────────────────────────────────────────────────────────────────
+
+_STRUCTURED_GUIDANCE_METRICS = {
+    "Revenue", "EPS", "Gross Margin", "Operating Income", "Other"
+}
+_STRUCTURED_GUIDANCE_CONFIDENCE = {"high", "medium", "low"}
+
+_STRUCTURED_GUIDANCE_SYSTEM = (
+    "Extract numerical guidance from earnings call transcripts. "
+    "Return JSON only. Never invent figures not in the text."
+)
+
+_anthropic_client = None
+_anthropic_unavailable_reason = None
+
+
+def _get_anthropic_client():
+    """
+    Lazily construct and cache a module-level Anthropic client.
+
+    Returns None when the SDK isn't installed or ANTHROPIC_API_KEY isn't
+    configured, rather than raising — callers treat that as "extraction
+    unavailable" and degrade to an empty result, the same as a transcript
+    with no guidance in it.
+    """
+    global _anthropic_client, _anthropic_unavailable_reason
+    if _anthropic_client is not None:
+        return _anthropic_client
+    if _anthropic_unavailable_reason is not None:
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        _anthropic_unavailable_reason = "anthropic package not installed"
+        logger.warning("_get_anthropic_client: %s", _anthropic_unavailable_reason)
+        return None
+    from core.config import ANTHROPIC_API_KEY
+    if not ANTHROPIC_API_KEY:
+        _anthropic_unavailable_reason = "ANTHROPIC_API_KEY not set"
+        logger.warning("_get_anthropic_client: %s", _anthropic_unavailable_reason)
+        return None
+    _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return _anthropic_client
+
+
+def _extract_structured_guidance(transcript_text: str, ticker: str) -> list[dict]:
+    """
+    Extract explicit numerical guidance statements from an earnings call
+    transcript.
+
+    Returns list of:
+    {
+        "metric":    "Revenue" | "EPS" | "Gross Margin"
+                     | "Operating Income" | "Other",
+        "period":    "Q2 FY2027" | "FY2027" | etc.,
+        "low":       float | None,   # in native units
+        "high":      float | None,
+        "midpoint":  float | None,
+        "unit":      "B USD" | "M USD" | "%" | "$",
+        "raw_text":  str,  # the sentence it came from
+        "confidence":"high" | "medium" | "low",
+    }
+
+    Uses the Claude API to extract; the model is instructed never to invent
+    figures not present in the text. Returns an empty list if the transcript
+    is empty, the API is unavailable, or no guidance is found — never raises.
+    """
+    if not transcript_text or not transcript_text.strip():
+        return []
+
+    client = _get_anthropic_client()
+    if client is None:
+        return []
+
+    user_prompt = (
+        f"Extract all explicit numerical guidance from this transcript for "
+        f"{ticker}:\n{transcript_text[:4000]}"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-opus-5",
+            max_tokens=2000,
+            output_config={"effort": "low"},
+            system=_STRUCTURED_GUIDANCE_SYSTEM,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+    except Exception as e:
+        logger.warning("_extract_structured_guidance(%s): API call failed — %s", ticker, e)
+        return []
+
+    text = "".join(
+        b.text for b in response.content if getattr(b, "type", None) == "text"
+    )
+    if not text.strip():
+        return []
+
+    # Model sometimes wraps the JSON in a markdown code fence — strip it.
+    fenced = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
+    raw_json = fenced.group(1) if fenced else text.strip()
+
+    try:
+        parsed = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("_extract_structured_guidance(%s): non-JSON response: %.200s",
+                       ticker, text)
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    def _num(v):
+        return float(v) if isinstance(v, (int, float)) else None
+
+    out = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        metric  = item.get("metric")
+        raw_txt = item.get("raw_text")
+        if not metric or not raw_txt:
+            continue
+        if metric not in _STRUCTURED_GUIDANCE_METRICS:
+            metric = "Other"
+        confidence = item.get("confidence")
+        if confidence not in _STRUCTURED_GUIDANCE_CONFIDENCE:
+            confidence = "low"
+
+        out.append({
+            "metric":     metric,
+            "period":     str(item.get("period") or "").strip() or None,
+            "low":        _num(item.get("low")),
+            "high":       _num(item.get("high")),
+            "midpoint":   _num(item.get("midpoint")),
+            "unit":       str(item.get("unit") or "").strip() or None,
+            "raw_text":   str(raw_txt).strip(),
+            "confidence": confidence,
+        })
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Guidance vs. actuals comparison (LLM-extracted guidance) — Stage 3
+#
+# A second, independent credibility read from the structured guidance
+# above — separate from GuidanceTracker's regex-based multi-quarter
+# tracker (financials/guidance_tracker.py), which continues to drive
+# Execution Quality / Communication Score / the original credibility line.
+# ─────────────────────────────────────────────────────────────────────────
+
+_COMPARABLE_STRUCTURED_METRICS = {"Revenue", "Gross Margin"}
+
+
+def _to_guidance_native_unit(value: float, metric: str, unit: str) -> float:
+    """
+    Convert an actual (dollars for Revenue, fraction for Gross Margin — the
+    scale _build_actual_results in orchestrator.py reports them in) into the
+    same native scale as a guidance item's low/high/unit, so beat/meet/miss
+    compares like-for-like. Extracted guidance is in whatever unit the model
+    reported (e.g. low=89.0 with unit="B USD" means $89 billion) — comparing
+    that directly against a raw dollar actual would make every comparison a
+    trivial "beat".
+    """
+    u = (unit or "").upper()
+    if metric == "Revenue":
+        if "B" in u:
+            return value / 1e9
+        if "M" in u:
+            return value / 1e6
+        return value
+    if metric == "Gross Margin":
+        if "%" in u:
+            return value * 100
+        return value
+    return value
+
+
+def _compare_guidance_to_actuals(prior_guidance: list[dict],
+                                 actual_results: dict) -> list[dict]:
+    """
+    For each guidance item in prior_guidance (from a Q-1 transcript, via
+    _extract_structured_guidance), find the corresponding actual result and
+    compute beat/meet/miss.
+
+    actual_results is keyed by lower-cased metric name, in absolute units —
+    e.g. {"revenue": 96.3e9, "gross margin": 0.758} (dollars, fraction) —
+    and is converted to each guidance item's own native unit before
+    comparing (see _to_guidance_native_unit).
+
+    Only Revenue and Gross Margin are compared — the most consistently
+    extractable and comparable metrics across tickers. Returns [] if
+    prior_guidance or actual_results is unavailable/empty.
+    """
+    if not prior_guidance or not actual_results:
+        return []
+
+    out = []
+    for g in prior_guidance:
+        metric = g.get("metric")
+        if metric not in _COMPARABLE_STRUCTURED_METRICS:
+            continue
+        lo, hi = g.get("low"), g.get("high")
+        if lo is None or hi is None:
+            continue
+        actual_raw = actual_results.get(metric.lower())
+        if actual_raw is None:
+            continue
+        unit   = g.get("unit")
+        actual = _to_guidance_native_unit(actual_raw, metric, unit)
+
+        if actual > hi:
+            outcome = "beat"
+        elif actual < lo:
+            outcome = "miss"
+        else:
+            outcome = "meet"
+
+        mid = g.get("midpoint")
+        if mid is None:
+            mid = (lo + hi) / 2
+        delta_pct = (actual - mid) / abs(mid) * 100 if mid else 0.0
+
+        out.append({
+            "metric":      metric,
+            "period":      g.get("period"),
+            "guided_low":  lo,
+            "guided_high": hi,
+            "guided_mid":  mid,
+            "actual":      actual,
+            "unit":        unit,
+            "outcome":     outcome,
+            "delta_pct":   round(delta_pct, 1),
+        })
+    return out
+
+
+def _score_structured_credibility(comparisons: list[dict]) -> int | None:
+    """
+    Credibility score (0-100) from _compare_guidance_to_actuals() output.
+    Base 50; beat +15, meet +10, miss -10 per comparison; capped [0, 100].
+    None when there are no comparisons — updated only once at least one
+    guidance-vs-actual comparison is available.
+    """
+    if not comparisons:
+        return None
+    score = 50
+    for c in comparisons:
+        outcome = c.get("outcome")
+        if outcome == "beat":
+            score += 15
+        elif outcome == "meet":
+            score += 10
+        elif outcome == "miss":
+            score -= 10
+    return max(0, min(100, score))
 
 
 class TrendCommentaryAgent:
