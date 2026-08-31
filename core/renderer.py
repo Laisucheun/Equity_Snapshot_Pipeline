@@ -2021,6 +2021,88 @@ class EquityBriefRenderer:
                     )
                 story.append(Paragraph(_sr_note, styles["meta"]))
 
+        # ── Dividend Analysis sub-block ──
+        # Per-share growth and payout sustainability from
+        # FundamentalAgent._compute_dividend_growth(), extending the dollar
+        # figures already shown in Shareholder Returns above. Shown only
+        # when the ticker actually pays a dividend.
+        _dg = fundamental.get("dividend_growth", {}) or {}
+        if _dg.get("has_dividend"):
+            def _fmt_dps(v):
+                if isinstance(v, (int, float)):
+                    return f"-${abs(v):.2f}" if v < 0 else f"${v:.2f}"
+                return "N/A"
+
+            def _fmt_dg_x(v):
+                if isinstance(v, (int, float)):
+                    return f"{v:.2f}x"
+                return "N/A"
+
+            def _dg_row(label, series, fmt):
+                # Same non-TTM convention as _sr_row just above, for the
+                # same core reason (no TTM market-cap-free basis here
+                # either) plus one more: the payout basis can be AFFO for
+                # REITs, and this pipeline has no TTM AFFO anywhere -- a
+                # partly-real TTM column would be inconsistent row to row.
+                return ([label] + (["—"] if _ttm_on else [])
+                       + [fmt(series.get(p)) for p in periods])
+
+            _dg_basis = _dg.get("payout_basis", "FCF")
+            dg_rows = [
+                _dg_row("DPS ($)",          _dg.get("dps", {}),                   _fmt_dps),
+                _dg_row("DPS YoY Growth",   _dg.get("dps_yoy", {}),               _fmt_signed_pct1),
+                _dg_row(f"Payout (% of {_dg_basis})",
+                        _dg.get("payout_ratio_fcf", {}), _fmt_pct1),
+                _dg_row("Dividend Coverage", _dg.get("dividend_coverage_fcf", {}), _fmt_dg_x),
+            ]
+            dg_rows = _drop_all_na(dg_rows)
+            if dg_rows:
+                story.append(Spacer(1, 4))
+                t_dg = Table(
+                    [[Paragraph("Dividend Analysis", styles["section"])]],
+                    colWidths=["100%"]
+                )
+                t_dg.setStyle(TableStyle([
+                    ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#2C3E50")),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+                ]))
+                story.append(t_dg)
+                story.append(Spacer(1, 1))
+                story.append(_emit_table(fund_header, dg_rows))
+                story.append(Spacer(1, 2))
+
+                _cagr      = _dg.get("dps_cagr")
+                _cagr_yrs  = _dg.get("dps_cagr_years")
+                _cagr_str  = (f"{_cagr:+.1f}%" if isinstance(_cagr, (int, float)) else "N/A")
+                _cagr_lbl  = f"DPS CAGR ({_cagr_yrs}yr)" if _cagr_yrs else "DPS CAGR"
+                _cg_years  = _dg.get("consecutive_growth", 0)
+                _dg_score  = _dg.get("dividend_safety_score")
+                story.append(Paragraph(
+                    f"{_cagr_lbl}: {_cagr_str}  |  Consecutive Growth: "
+                    f"{_cg_years} year{'s' if _cg_years != 1 else ''}  |  "
+                    f"Dividend Safety Score: {_dg_score}/100",
+                    styles["meta"]
+                ))
+                _dg_note = (
+                    "DPS = dividends paid ÷ diluted (weighted-average) shares, not a "
+                    "filed per-share XBRL tag. Consecutive Growth and CAGR are bounded "
+                    f"by the {len(periods)} fiscal years resolved here, not necessarily "
+                    "the filer's full public dividend-growth streak."
+                )
+                if _dg_basis == "AFFO":
+                    _dg_note += (
+                        " Payout basis is AFFO: the NAREIT distribution base for REITs."
+                    )
+                elif _dg_basis == "Earnings":
+                    _dg_note += (
+                        " Payout basis is Earnings, not FCF: GAAP CFO for financials "
+                        "routinely runs negative from deposit/loan balance-sheet flows, "
+                        "making an FCF-based payout ratio meaningless for this sector."
+                    )
+                story.append(Paragraph(_dg_note, styles["meta"]))
+
         # Operating leverage rows (suppress for financials)
         ol = fundamental.get("operating_leverage", {})
         if ol and sg != "financials":

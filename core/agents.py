@@ -1133,6 +1133,141 @@ def _compute_shareholder_returns(profile, periods: list, sg: str,
     return out
 
 
+# Fine-grained industries that route to "Financial Services" in
+# facts_processor._FINE_INDUSTRY_TO_SECTOR. Kept as a local literal rather
+# than imported, since this is the only place in agents.py that needs it.
+_DIVIDEND_FINANCIALS_INDUSTRIES = {"banking", "insurance", "securities", "investment_companies"}
+
+
+def _compute_dividend_growth(dividends_paid: dict, shares: dict, net_income: dict,
+                             fcf: dict, affo: dict | None, periods: list,
+                             fine_industry: str) -> dict:
+    """
+    Dividend-per-share growth, payout sustainability and a composite safety
+    score per FY period, extending _compute_shareholder_returns() above.
+
+    DPS = dividends_paid / diluted shares (total-paid-over-shares, not a
+    filed per-share XBRL tag): CommonStockDividendsPerShareDeclared exists
+    in the IS waterfall but is unvalidated here and known-risky across
+    filers (declared vs. cash-paid conventions differ, and this taxonomy
+    has repeated quarterly-vs-annual tagging ambiguity elsewhere in this
+    pipeline -- see _is_annual_period's docstring). dividends_paid and
+    diluted shares are both already-proven, already-used-elsewhere inputs.
+
+    Payout basis mirrors _compute_shareholder_returns' routing (AFFO for
+    REITs; FCF for everyone else) with one addition: Financial Services
+    filers get Earnings as the payout_ratio_fcf denominator too, not FCF.
+    GAAP CFO for banks routinely runs deeply negative (deposit/loan
+    balance-sheet flows sit in operating activities) -- confirmed live:
+    JPM CFO -$147.8B, GS -$45.2B, MS -$17.9B, C -$67.6B for the periods
+    resolved in this pipeline. A naive dividends/FCF ratio for those names
+    is negative or nonsensical, not merely "high" -- see
+    _compute_shareholder_returns' basis routing for the same rationale
+    (FCF/EV, FCF Margin, and EV/FCF are all sector-suppressed already for
+    financials). Reported under "payout_basis" so the renderer can label
+    the row honestly instead of a hardcoded "% FCF".
+
+    consecutive_growth and dps_cagr are bounded by how many FY periods this
+    pipeline resolves (5 by default in production -- see
+    core/orchestrator.py's load_data(max_years=5)) -- a lower bound / recent
+    window, not necessarily a filer's full public dividend-growth streak.
+    """
+    affo = affo or {}
+    use_affo = any(isinstance(v, (int, float)) for v in affo.values())
+    use_earnings_basis = (not use_affo) and (fine_industry in _DIVIDEND_FINANCIALS_INDUSTRIES)
+    payout_basis = "AFFO" if use_affo else ("Earnings" if use_earnings_basis else "FCF")
+
+    dps: dict = {}
+    dps_yoy: dict = {}
+    payout_ratio_fcf: dict = {}
+    payout_ratio_earnings: dict = {}
+    dividend_coverage_fcf: dict = {}
+
+    for p in periods:
+        div = dividends_paid.get(p)
+        sh  = shares.get(p)
+        ni  = net_income.get(p)
+        div = div if isinstance(div, (int, float)) else None
+        sh  = sh if isinstance(sh, (int, float)) else None
+        ni  = ni if isinstance(ni, (int, float)) else None
+
+        dps[p] = (div / sh) if (div and sh and sh > 0) else None
+
+        if use_affo:
+            base = affo.get(p)
+        elif use_earnings_basis:
+            base = ni
+        else:
+            base = fcf.get(p)
+        base = base if isinstance(base, (int, float)) else None
+
+        payout_ratio_fcf[p]      = (div / base * 100) if (div and base and base > 0) else None
+        payout_ratio_earnings[p] = (div / ni * 100)   if (div and ni and ni > 0)     else None
+        dividend_coverage_fcf[p] = (base / div)        if (div and div > 0 and base and base > 0) else None
+
+    # ── YoY growth: periods are newest-first, so dps[i] vs dps[i+1] ───────
+    for i, p in enumerate(periods):
+        if i + 1 >= len(periods):
+            dps_yoy[p] = None
+            continue
+        cur_v, prev_v = dps.get(p), dps.get(periods[i + 1])
+        dps_yoy[p] = (
+            (cur_v - prev_v) / abs(prev_v) * 100
+            if (cur_v is not None and prev_v) else None
+        )
+
+    # ── Consecutive YoY growth years, working backwards from most recent ──
+    consecutive_growth = 0
+    for i in range(len(periods) - 1):
+        yoy = dps_yoy.get(periods[i])
+        if isinstance(yoy, (int, float)) and yoy > 0:
+            consecutive_growth += 1
+        else:
+            break
+
+    # ── CAGR over the full available window, only where dps > 0 throughout ──
+    dps_cagr = None
+    n = len(periods) - 1
+    if n >= 1 and all(isinstance(dps.get(p), (int, float)) and dps[p] > 0 for p in periods):
+        dps_cagr = ((dps[periods[0]] / dps[periods[-1]]) ** (1 / n) - 1) * 100
+
+    has_dividend = any(isinstance(v, (int, float)) and v for v in dividends_paid.values())
+
+    # ── Dividend Safety Score (0-100), each check independent/cumulative ──
+    score = 50
+    pr = payout_ratio_fcf.get(periods[0]) if periods else None
+    if isinstance(pr, (int, float)):
+        if pr < 50:  score += 20
+        if pr < 75:  score += 10
+        if pr > 90:  score -= 10
+        if pr > 100: score -= 20
+    if consecutive_growth >= 5: score += 15
+    if consecutive_growth >= 3: score += 10
+    if isinstance(dps_cagr, (int, float)):
+        if dps_cagr > 5: score += 10
+        if dps_cagr > 3: score += 5
+    mr_yoy = dps_yoy.get(periods[0]) if periods else None
+    if isinstance(mr_yoy, (int, float)) and mr_yoy < 0:
+        score -= 10
+    if not has_dividend:
+        score -= 20
+    score = max(0, min(100, score))
+
+    return {
+        "dps":                    dps,
+        "dps_yoy":                dps_yoy,
+        "dps_cagr":               dps_cagr,
+        "dps_cagr_years":         n if dps_cagr is not None else None,
+        "consecutive_growth":     consecutive_growth,
+        "payout_ratio_fcf":       payout_ratio_fcf,
+        "payout_ratio_earnings":  payout_ratio_earnings,
+        "dividend_coverage_fcf":  dividend_coverage_fcf,
+        "dividend_safety_score":  score,
+        "has_dividend":           has_dividend,
+        "payout_basis":           payout_basis,
+    }
+
+
 def _compute_sbc_metrics(profile, periods: list) -> dict:
     """
     Stock-based compensation and FCF restated to treat it as a cash cost.
@@ -2087,6 +2222,27 @@ class FundamentalAgent:
                     f"funded by balance sheet or debt"
                 )
 
+        # ── Dividend growth (DPS, CAGR, consecutive years, safety score) ────
+        # Reuses dividends_paid already resolved above; builds the three
+        # small per-period dicts _compute_dividend_growth needs (shares,
+        # net_income, fcf) the same way bvps already reads diluted shares
+        # per period a few blocks up.
+        _div_shares = {p: _safe_val(inc.diluted_shares, i) for i, p in enumerate(periods)}
+        _div_ni     = {p: _safe_val(inc.net_income, i) for i, p in enumerate(periods)}
+        _div_fcf    = {p: _safe_val(profile.cash_flow.free_cash_flow, i) for i, p in enumerate(periods)}
+        dividend_growth = _compute_dividend_growth(
+            shareholder_returns.get("dividends_paid", {}),
+            _div_shares, _div_ni, _div_fcf, affo_rows, periods, fine_industry
+        )
+        if dividend_growth["has_dividend"] and periods:
+            _dg_mr = periods[0]
+            _dg_yoy = dividend_growth["dps_yoy"].get(_dg_mr)
+            if isinstance(_dg_yoy, (int, float)) and _dg_yoy < 0:
+                flags.append(
+                    f"Dividend per share cut {_dg_yoy:.1f}% ({_fy(_dg_mr)}) — "
+                    f"breaks any prior growth streak"
+                )
+
         # ── Margin / cost-ratio change flag (most recent YoY only) ───────────
         # Replaces four per-sector in-loop versions that compared each period
         # against the PREVIOUS loop iteration. Because this loop runs
@@ -2409,6 +2565,7 @@ class FundamentalAgent:
             ) if affo_components else False,
             "working_capital":      working_capital,
             "shareholder_returns":  shareholder_returns,
+            "dividend_growth":      dividend_growth,
             "sbc":                  sbc_metrics,
             "sector_group":         sg,
             "suppressed_metrics":   _metric_suppression["suppress"],
